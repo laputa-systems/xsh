@@ -28,7 +28,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &mut self, callee: ExprId, argument: CallArgument<super::SchemeType>, slots: &mut SlotScope,
         current_function: Name, facts: &super::SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut std::collections::BTreeMap<BuildExprId, super::SchemeType>,
     ) -> Option<BuildExprId> {
-        let span = self.program.arena.expr(callee).span;
+        let span = self.program.arena.expr_span(callee);
         let relationship = self.bodies.scheme_callable_calls.get(&crate::sema::schemes::InstantiationSite::call(callee)).copied();
         let alias = self.declarations.static_callable_aliases.get(&span).cloned();
         let alias_signature = alias.as_ref().map(|alias| {
@@ -36,12 +36,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             sig.effects = crate::sema::types::CallableEffects::from_contract(sig.effects.contract().clone().for_invocation(alias.kind));
             Type::Callable(Arc::new(crate::sema::types::TypedCallable { kind: alias.kind, sig }))
         });
-        let source = match self.program.arena.expr(callee).kind {
+        let source = match self.program.arena.expr_kind(callee) {
             ArenaExprKind::Field { base, .. } if alias.as_ref().is_some_and(|alias| alias.method_call) => base,
             _ => callee,
         };
         let signature = alias_signature.or_else(|| {
-            let ArenaExprKind::Field { base, name } = self.program.arena.expr(source).kind else { return None; };
+            let ArenaExprKind::Field { base, name } = self.program.arena.expr_kind(source) else { return None; };
             let binding = self.expression_binding(base)?;
             let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
             if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
@@ -51,7 +51,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let source_type = self.expression_binding(source).and_then(|binding| slots.types.get(&binding)).cloned()
             .or_else(|| relationship.map(|relationship| super::SchemeType::Ground(Type::SchemeCallable(relationship))))
             .or_else(|| signature.clone().map(super::SchemeType::Ground))?;
-        let namespace = matches!(self.program.arena.expr(source).kind, ArenaExprKind::Field { base, .. }
+        let namespace = matches!(self.program.arena.expr_kind(source), ArenaExprKind::Field { base, .. }
             if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| matches!(declaration.kind, super::BindingKind::Module(_))));
         let value = if namespace {
             let value = self.lower_scheme_static_callable_projection(source, slots, facts, visited, lowered_types)?;
@@ -106,7 +106,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_construction_parts<T>(&self, id: ExprId, definition: crate::syntax::arena::TypeDefId, schema: T) -> Option<CheckedRecordConstruction<T>> {
-        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr(id).kind else { return None; };
+        let ArenaExprKind::Call { callee, .. } = self.program.arena.expr_kind(id) else { return None; };
         if self.declarations.record_constructors.constructor_definition(&self.program.arena, callee, self.current_namespace) != Some(definition) { return None; }
         let schema_definition = match self.program.arena.type_def(definition).body {
             crate::syntax::arena::ArenaTypeDefBody::RecordSchema(_) => definition,
@@ -116,9 +116,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             crate::syntax::arena::ArenaTypeDefBody::ModuleContract { .. }
             | crate::syntax::arena::ArenaTypeDefBody::TagUnion(_) => return None,
         };
-        let name = match self.program.arena.expr(callee).kind {
+        let name = match self.program.arena.expr_kind(callee) {
             ArenaExprKind::Ident(name) => name.to_string(),
-            ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind {
+            ArenaExprKind::Field { base, name } => match self.program.arena.expr_kind(base) {
                 ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
                 _ => return None,
             },
@@ -150,7 +150,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let function = self.function_index().checked_target_key(target)?;
-        let span = self.program.arena.expr(id).span;
+        let span = self.program.arena.expr_span(id);
         let lowered_args = self.lower_checked_function_arguments(id, args, function, slots, current_function, item_slot, |ty| Some(ty.clone()))?;
         let lowered = self.lower_checked_function_call_values(
             function,
@@ -193,7 +193,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
         closed_argument_type: impl Fn(&T) -> Option<Type>,
     ) -> Option<Vec<LoweredCallArg>> {
-        let span = self.program.arena.expr(id).span;
+        let span = self.program.arena.expr_span(id);
         let params = self
             .compact_function_sig_for_key(function)
             .map(|signature| signature.params.clone());
@@ -256,7 +256,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             for (index, argument) in args.iter_mut().enumerate() {
                 if argument.splice { continue; }
                 if let crate::sema::arguments::ArgumentValueSource::Expression(expression) = argument.source
-                    && matches!(self.program.arena.expr(expression).kind, ArenaExprKind::List(_))
+                    && matches!(self.program.arena.expr_kind(expression), ArenaExprKind::List(_))
                     && let Some(actual) = closed_argument_type(&argument.ty)
                         .filter(|ty| !ty.contains_inference() && !ty.contains_recovery())
                         .or_else(|| self.bodies.expr_types.get(&expression)
@@ -385,10 +385,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &mut self, callee: ExprId, item: BuildExprId, slots: &mut SlotScope,
         current_function: Option<Name>,
     ) -> Option<BuildExprId> {
-        let span = self.program.arena.expr(callee).span;
+        let span = self.program.arena.expr_span(callee);
         let args = vec![LoweredCallArg::Single(item)];
         if let Some(alias) = self.declarations.static_callable_aliases.get(&span).cloned() {
-            let callee = match self.program.arena.expr(callee).kind {
+            let callee = match self.program.arena.expr_kind(callee) {
                 ArenaExprKind::Field { base, .. } if alias.method_call => base,
                 _ => callee,
             };
@@ -469,7 +469,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind else {
+        let ArenaExprKind::Field { base, .. } = self.program.arena.expr_kind(callee) else {
             return None;
         };
         let plan =
@@ -483,7 +483,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .collect::<Option<Vec<_>>>()?;
         let mut bindings = Vec::new();
         if !matches!(
-            self.program.arena.expr(base).kind,
+            self.program.arena.expr_kind(base),
             ArenaExprKind::EnvPathList
         ) && !is_env_module_expr(&self.program.arena, base)
         {
@@ -759,9 +759,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let span = self.program.arena.expr(id).span;
+        let span = self.program.arena.expr_span(id);
         let source_args = self.program.arena.call_args(args);
-        let direct_record_fields = matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(_))
+        let direct_record_fields = matches!(self.program.arena.expr_kind(callee), ArenaExprKind::Ident(_))
             && source_args.iter().all(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. }))
             && self.checked_record_construction(id).is_some_and(|construction| {
                 matches!(construction.schema, Type::Record(fields) if fields.values().all(|ty| *ty == Type::Int))
@@ -805,7 +805,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some(alias) = self
             .declarations
             .static_callable_aliases
-            .get(&self.program.arena.expr(callee).span)
+            .get(&self.program.arena.expr_span(callee))
             .cloned()
         {
             let fixed_slots = alias.signature.params.iter().position(|parameter| parameter.rest).unwrap_or(alias.signature.params.len());
@@ -821,7 +821,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 current_function,
                 item_slot,
             )?;
-            let callee = match self.program.arena.expr(callee).kind {
+            let callee = match self.program.arena.expr_kind(callee) {
                 ArenaExprKind::Field { base, .. } if alias.method_call => base,
                 _ => callee,
             };
@@ -880,7 +880,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             );
             return Some(typed_call);
         }
-        if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr(callee).kind
+        if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr_kind(callee)
             && self.checked_expr_type(base)
                 .or_else(|| self.concrete_checked_type(base)).is_some_and(|ty| {
                 ty == Type::FsRoot
@@ -975,7 +975,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let value = self.push_checked_structured_error(id, error, span)?;
             return Some(self.wrap_argument_bindings(value, bindings, span));
         }
-        match self.program.arena.expr(callee).kind {
+        match self.program.arena.expr_kind(callee) {
             ArenaExprKind::Field { base, name } => {
                 if let Some(env_call) = self.lower_env_path_method_call(
                     id,
@@ -990,7 +990,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let statically_resolved = self.bodies.statically_resolved_calls.contains(&id);
                 let runtime_module = !statically_resolved
-                    && !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none());
+                    && !matches!(self.program.arena.expr_kind(base), ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none());
                 if runtime_module
                     && let Some(Type::Module(exports)) = self.checked_expr_type(base)
                     && let Some(
@@ -1037,7 +1037,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     return Some(call);
                 }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base) {
                     if let Some(arity) = self.compact_qualified_tag_variant_arity(module, name) {
                         let positional = call_positional_arguments(&args_vec)?;
                         if positional.len() != arity {
@@ -1650,7 +1650,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base)
                     && module == "hash"
                     && name == "verify_file"
                     && let Some(options) = lower_hash_verify_file_args(&args_vec)
@@ -1663,7 +1663,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     );
                 }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base)
                     && let Some(module_call) =
                         lowered_module_call_args(module, name, &args_vec, self.module_call_plan(id))
                 {
@@ -1684,7 +1684,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                 }
                 let positional = call_positional_arguments(&args_vec);
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base)
                     && let Some(positional) = positional.as_ref()
                 {
                     if module == "Path" && name == "parse_bytes" && positional.len() == 1 {
@@ -1796,7 +1796,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
-                    if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base)
                         && let Some(call_args) = lowered_module_call_args(
                             module,
                             name,
@@ -2370,7 +2370,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         })
                 })?;
                 if !lowered_method_name(&name.as_str()) {
-                    if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    if let ArenaExprKind::Ident(module) = self.program.arena.expr_kind(base)
                         && let Some(call_args) = lowered_module_call_args(
                             module,
                             name,

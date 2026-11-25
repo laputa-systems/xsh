@@ -6,9 +6,9 @@ pub(super) fn matches_constructor_producer(
     kind: crate::sema::schemes::NonmaterialConstructor,
 ) -> bool {
     match kind {
-        crate::sema::schemes::NonmaterialConstructor::Record => matches!(program.arena.expr(expression).kind, ArenaExprKind::Record(_)),
-        crate::sema::schemes::NonmaterialConstructor::EmptyList => matches!(program.arena.expr(expression).kind, ArenaExprKind::List(elements) if elements.is_empty()),
-        crate::sema::schemes::NonmaterialConstructor::EmptyMap => matches!(program.arena.expr(expression).kind, ArenaExprKind::Call { args, .. } if args.is_empty()),
+        crate::sema::schemes::NonmaterialConstructor::Record => matches!(program.arena.expr_kind(expression), ArenaExprKind::Record(_)),
+        crate::sema::schemes::NonmaterialConstructor::EmptyList => matches!(program.arena.expr_kind(expression), ArenaExprKind::List(elements) if elements.is_empty()),
+        crate::sema::schemes::NonmaterialConstructor::EmptyMap => matches!(program.arena.expr_kind(expression), ArenaExprKind::Call { args, .. } if args.is_empty()),
     }
 }
 

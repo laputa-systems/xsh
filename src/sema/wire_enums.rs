@@ -102,8 +102,8 @@ impl PreparedWireEnums {
         }));
         for (namespace, statements) in scopes {
             for statement in statements {
-                let kind = match program.arena.stmt(statement).kind {
-                    ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                let kind = match program.arena.stmt_kind(statement) {
+                    ArenaStmtKind::Export(inner) => program.arena.stmt_kind(inner),
                     kind => kind,
                 };
                 let ArenaStmtKind::TypeDef(id) = kind else {

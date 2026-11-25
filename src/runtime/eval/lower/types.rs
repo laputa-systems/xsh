@@ -580,7 +580,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // capture) may hold a union member, and only the checker's fact
             // says which. Without it the call is not lowered.
             return !matches!(
-                self.program.arena.expr(base).kind,
+                self.program.arena.expr_kind(base),
                 ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_some()
             );
         };
@@ -631,7 +631,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     pub(super) fn is_empty_record_in_map_context(&self, value: ExprId, ty: Option<TypeExprId>) -> bool {
         ty.is_some_and(|ty| self.program.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Map)
-            && matches!(self.program.arena.expr(value).kind, ArenaExprKind::Record(fields) if self.program.arena.record_fields(fields).is_empty())
+            && matches!(self.program.arena.expr_kind(value), ArenaExprKind::Record(fields) if self.program.arena.record_fields(fields).is_empty())
     }
 
     pub(super) fn lowered_return_kind(&self, ty: TypeExprId) -> Option<LoweredReturnKind> {

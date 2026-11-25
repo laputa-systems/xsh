@@ -149,7 +149,7 @@ fn function_contains_span(program: &ArenaProgram, definition: FunctionDefId, spa
     let contains = |owner: Span| owner.source_id == span.source_id && owner.start() <= span.start() && span.end() <= owner.end();
     contains(program.arena.span(program.arena.block(def.body).span))
         || program.arena.params(def.params).iter().filter_map(|parameter| parameter.default)
-            .any(|expression| contains(program.arena.expr(expression).span))
+            .any(|expression| contains(program.arena.expr_span(expression)))
 }
 
 #[cfg(test)]
@@ -698,7 +698,7 @@ mod tests {
             assert_eq!(peer_calls.len(), 2);
             for span in peer_calls {
                 assert!(phase.latent_stream_error_spans.contains(&span));
-                let expression = view.expr_ids().into_iter().find(|&expression| program.arena.expr(expression).span == span).expect("actual selected recursive stream expression");
+                let expression = view.expr_ids().into_iter().find(|&expression| program.arena.expr_span(expression) == span).expect("actual selected recursive stream expression");
                 let mut origin = phase.stream_expr_origin(program, expression);
                 assert!(!origin.join(&super::super::stream_origins::StreamOrigins::error()));
             }

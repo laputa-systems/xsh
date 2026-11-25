@@ -699,7 +699,7 @@ impl Checker {
             }
             ArenaPatternKind::Literal(expr) => {
                 let actual = self.check_expr_arena(arena, source, *expr, Some(value_ty));
-                let expr_span = arena.arena.expr(*expr).span;
+                let expr_span = arena.arena.expr_span(*expr);
                 self.expect_type(value_ty, &actual, expr_span);
             }
             ArenaPatternKind::List { elements, rest } => {

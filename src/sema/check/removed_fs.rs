@@ -226,7 +226,7 @@ impl Checker {
         if let Some((arg, ty)) = path
             && let ArenaCallArgKind::Positional(operand) = arg.kind
         {
-            let literal = matches!(arena.arena.expr(operand).kind, ArenaExprKind::Str(_));
+            let literal = matches!(arena.arena.expr_kind(operand), ArenaExprKind::Str(_));
             if *ty.unvalidated() == Type::Path || literal {
                 if let Some(fix) =
                     method_call_head(&arena.arena, source, span, operand, name, label)
@@ -286,7 +286,7 @@ fn method_call_head(
     label: Option<&str>,
 ) -> Option<FixHint> {
     let receiver = call_receiver_text(arena, source, path)?;
-    let path = arena.expr(path).span;
+    let path = arena.expr_span(path);
     let open = source
         .get(call.start()..path.start())?
         .strip_prefix("fs.")?

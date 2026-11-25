@@ -613,9 +613,9 @@ impl Checker {
             return true;
         }
         program.module_statements(module).any(|id| {
-            let kind = match program.arena.stmt(id).kind {
+            let kind = match program.arena.stmt_kind(id) {
                 crate::syntax::arena::ArenaStmtKind::Export(inner) => {
-                    program.arena.stmt(inner).kind
+                    program.arena.stmt_kind(inner)
                 }
                 other => other,
             };
@@ -635,8 +635,8 @@ impl Checker {
             })
             .flat_map(|module| view.program.module_statements(module))
             .filter_map(|statement| {
-                let kind = match view.program.arena.stmt(statement).kind {
-                    ArenaStmtKind::Export(inner) => view.program.arena.stmt(inner).kind,
+                let kind = match view.program.arena.stmt_kind(statement) {
+                    ArenaStmtKind::Export(inner) => view.program.arena.stmt_kind(inner),
                     kind => kind,
                 };
                 match kind {
@@ -651,11 +651,11 @@ impl Checker {
         let program = view.program;
         let main = super::Name::intern("main");
         view.statement_ids().any(|statement| {
-            let statement = match program.arena.stmt(statement).kind {
+            let statement = match program.arena.stmt_kind(statement) {
                 ArenaStmtKind::Export(inner) => inner,
                 _ => statement,
             };
-            matches!(program.arena.stmt(statement).kind,
+            matches!(program.arena.stmt_kind(statement),
                 ArenaStmtKind::ProcDef(definition) | ArenaStmtKind::CliMain(definition)
                     if program.arena.function_def(definition).name == main)
         })
@@ -2354,7 +2354,7 @@ mod tests {
             .tail_types()
             .iter()
             .find_map(|(&statement, ty)| {
-                (program.arena.stmt(statement).span == identity_body).then_some(ty)
+                (program.arena.stmt_span(statement) == identity_body).then_some(ty)
             });
         assert!(matches!(
             identity_body_type,
@@ -2370,7 +2370,7 @@ mod tests {
             .expression_types()
             .iter()
             .find_map(|(&expression, ty)| {
-                (program.arena.expr(expression).span == name_projection).then_some(ty)
+                (program.arena.expr_span(expression) == name_projection).then_some(ty)
             });
         assert!(matches!(
             name_body_type,
@@ -2469,7 +2469,7 @@ mod tests {
             .expect("CLI plan cache poisoned")
             .keys()
             .filter(|((expression, _), _)| {
-                program.arena.expr(*expression).span.source_id == module_source
+                program.arena.expr_span(*expression).source_id == module_source
             })
             .count();
         assert_eq!(module_plans, 1, "the imported applet plan must be published");
@@ -2561,7 +2561,7 @@ mod tests {
             .expect("CLI plan cache poisoned")
             .keys()
             .filter(|((expression, _), _)| {
-                program.arena.expr(*expression).span.source_id == module_source
+                program.arena.expr_span(*expression).source_id == module_source
             })
             .count();
         assert_eq!(module_plans, 1, "the imported applet plan must be published");
@@ -2635,7 +2635,7 @@ mod tests {
         );
         let ((expression, _), _) = published_plans.keys().next().expect("published plan");
         assert_eq!(
-            program.arena.expr(*expression).span.source_id,
+            program.arena.expr_span(*expression).source_id,
             shared_source,
             "the plan key remains owned by its canonical descriptor"
         );

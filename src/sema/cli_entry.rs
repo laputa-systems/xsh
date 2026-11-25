@@ -74,7 +74,7 @@ pub(crate) fn validate_cli_entry(
             view.modules()
                 .flat_map(|module| program.module_statements(module)),
         )
-        .map(|id| program.arena.stmt(id).span.source_id)
+        .map(|id| program.arena.stmt_span(id).source_id)
         .collect::<std::collections::BTreeSet<_>>();
     let mut diagnostics = Vec::new();
     let mut entries = Vec::<CliEntryPlan>::new();
@@ -126,8 +126,8 @@ pub(crate) fn validate_cli_entry(
             error(statement.span, "`help` is reserved by the CLI parser");
         }
         let another_main = roots.iter().any(|root| {
-            let kind = match program.arena.stmt(*root).kind {
-                ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+            let kind = match program.arena.stmt_kind(*root) {
+                ArenaStmtKind::Export(inner) => program.arena.stmt_kind(inner),
                 kind => kind,
             };
             match kind {
@@ -262,7 +262,7 @@ pub(crate) fn validate_cli_entry(
         });
     }
     for entry in &entries {
-        let span = program.arena.stmt(entry.statement).span;
+        let span = program.arena.stmt_span(entry.statement);
         if entries.iter().any(|other| other.path.len() > entry.path.len() && other.path.starts_with(&entry.path))
             && !(entry.parameters.is_empty() || entry.parameters.len() == 1 && entry.parameters[0].rest && entry.parameters[0].ty == Type::List(Box::new(Type::Str)))
         {

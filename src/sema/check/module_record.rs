@@ -328,7 +328,7 @@ fn module_import_keys<'a>(
     module: &'a ArenaUserModule,
 ) -> impl Iterator<Item = String> + 'a {
     program.module_statements(module).filter_map(|statement| {
-        let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else {
+        let ArenaStmtKind::Use(use_id) = program.arena.stmt_kind(statement) else {
             return None;
         };
         program.arena.use_stmt(use_id).resolved.as_deref().map(str::to_owned)
@@ -595,7 +595,7 @@ impl PreparedModuleFacts {
         for (expression, fact) in &self.prepared_constants.record_constructor_instances {
             checker
                 .record_constructor_instances
-                .insert(program.arena.expr(*expression).span, fact.clone());
+                .insert(program.arena.expr_span(*expression), fact.clone());
         }
     }
 }
@@ -721,7 +721,7 @@ mod tests {
         );
         let root_type = program
             .statement_ids()
-            .find_map(|statement| match program.arena.stmt(statement).kind {
+            .find_map(|statement| match program.arena.stmt_kind(statement) {
                 ArenaStmtKind::TypeDef(definition) => Some(definition),
                 _ => None,
             })
@@ -729,8 +729,8 @@ mod tests {
         let module = view.modules.first().expect("embedded module");
         let module_type = program
             .module_statements(module)
-            .find_map(|statement| match program.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => match program.arena.stmt(inner).kind {
+            .find_map(|statement| match program.arena.stmt_kind(statement) {
+                ArenaStmtKind::Export(inner) => match program.arena.stmt_kind(inner) {
                     ArenaStmtKind::TypeDef(definition) => Some(definition),
                     _ => None,
                 },

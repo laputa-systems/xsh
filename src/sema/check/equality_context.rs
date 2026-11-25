@@ -6,13 +6,13 @@ use crate::syntax::arena::{ArenaProgram, ExprId};
 impl Checker {
     pub(super) fn contextualize_equality_constructor_holes(&mut self, arena: &ArenaProgram, operand: ExprId, actual: &Type, context: &Type) -> bool {
         if !actual.contains_inference() || context.contains_inference() || context.contains_any() || context.contains_recovery() { return true; }
-        let span = arena.arena.expr(operand).span;
+        let span = arena.arena.expr_span(operand);
         let mut source = operand;
         for _ in 0..arena.arena.expr_tags.len() {
             let Some(origin) = self.resolved_bindings.immutable_value_source(arena, source) else { break; };
             source = origin;
         }
-        let source = arena.arena.expr(source).span;
+        let source = arena.arena.expr_span(source);
         let holes = self.result_constructors.iter().filter_map(|(&producer, kind)| {
             if producer.source_id != source.source_id || producer.start() < source.start() || producer.end() > source.end()
                 || self.guarded_nodes.get(&producer) != self.guarded_nodes.get(&span)
@@ -57,10 +57,10 @@ mod tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), "keep(Err(\"opaque\"))");
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         parsed.arena.symbol_owner().with_current(|| {
-            let expressions = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).filter(|&id| matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Call { .. })).collect::<Vec<_>>();
-            let operand = *expressions.iter().max_by_key(|&&id| parsed.arena.arena.expr(id).span.end() - parsed.arena.arena.expr(id).span.start()).unwrap();
-            let constructor = *expressions.iter().min_by_key(|&&id| parsed.arena.arena.expr(id).span.end() - parsed.arena.arena.expr(id).span.start()).unwrap();
-            let producer = parsed.arena.arena.expr(constructor).span;
+            let expressions = parsed.arena.arena.source_rows().expr_ids(SourceId::new(0)).filter(|&id| matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Call { .. })).collect::<Vec<_>>();
+            let operand = *expressions.iter().max_by_key(|&&id| parsed.arena.arena.expr_span(id).end() - parsed.arena.arena.expr_span(id).start()).unwrap();
+            let constructor = *expressions.iter().min_by_key(|&&id| parsed.arena.arena.expr_span(id).end() - parsed.arena.arena.expr_span(id).start()).unwrap();
+            let producer = parsed.arena.arena.expr_span(constructor);
             let mut checker = Checker::new(super::super::CheckOptions::for_execution());
             let hole = checker.type_constraints.fresh(producer);
             let actual = Type::Result(Box::new(hole.clone()), Box::new(Type::Str));
@@ -75,7 +75,7 @@ mod tests {
             assert_eq!(checker.type_constraints.resolve(&hole).unwrap(), hole);
             assert_eq!(checker.type_constraints.resolve(&unrelated).unwrap(), unrelated);
             checker.expr_types.insert(producer, actual.clone());
-            let guard = checker.type_constraints.register_non_null_guard(CallableApplicationScope::Invocation, Type::Optional(Box::new(Type::Str)), Type::Str, producer, parsed.arena.arena.expr(operand).span).unwrap();
+            let guard = checker.type_constraints.register_non_null_guard(CallableApplicationScope::Invocation, Type::Optional(Box::new(Type::Str)), Type::Str, producer, parsed.arena.arena.expr_span(operand)).unwrap();
             checker.guarded_nodes.insert(producer, guard);
             assert!(checker.contextualize_equality_constructor_holes(&parsed.arena, operand, &actual, &expected));
             assert_eq!(checker.type_constraints.resolve(&hole).unwrap(), hole);

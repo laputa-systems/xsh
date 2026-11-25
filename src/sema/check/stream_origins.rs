@@ -993,13 +993,13 @@ impl Checker {
 
     pub(super) fn stream_success_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
         let origin = self.stream_expr_origin(arena, expression);
-        if ty.is_result() { self.project_stream_origin(&origin, &[StreamProjection::Success], arena.arena.expr(expression).span) } else { origin }
+        if ty.is_result() { self.project_stream_origin(&origin, &[StreamProjection::Success], arena.arena.expr_span(expression)) } else { origin }
     }
 
     pub(super) fn stream_binding_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun, binding_type: &Type) -> StreamOrigins {
         match initializer {
             ArenaExprOrRun::Expr(expression) => {
-                let ty = self.expr_types.get(&arena.arena.expr(expression).span).cloned().unwrap_or(Type::Unknown);
+                let ty = self.expr_types.get(&arena.arena.expr_span(expression)).cloned().unwrap_or(Type::Unknown);
                 self.stream_success_origin(arena, expression, &ty)
             }
             ArenaExprOrRun::Run(_) => StreamOrigins::unproven(binding_type),
@@ -1008,11 +1008,11 @@ impl Checker {
 
     pub(super) fn stream_iteration_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> StreamOrigins {
         let origin = self.stream_success_origin(arena, expression, ty);
-        let item = self.project_stream_origin(&origin, &[StreamProjection::Element], arena.arena.expr(expression).span);
+        let item = self.project_stream_origin(&origin, &[StreamProjection::Element], arena.arena.expr_span(expression));
         if matches!(ty.result_ok().unwrap_or(ty).unvalidated(), Type::Map(_, _)) {
             match item.prefix(StreamProjection::Field(Name::intern("value"))) {
                 Ok(item) => item,
-                Err(_) => { self.report_stream_origin_boundary(arena.arena.expr(expression).span); StreamOrigins::opaque() }
+                Err(_) => { self.report_stream_origin_boundary(arena.arena.expr_span(expression)); StreamOrigins::opaque() }
             }
         } else { item }
     }
@@ -1023,7 +1023,7 @@ impl Checker {
     }
 
     pub(super) fn stream_expr_origin(&self, arena: &ArenaProgram, expression: ExprId) -> StreamOrigins {
-        let span = arena.arena.expr(expression).span;
+        let span = arena.arena.expr_span(expression);
         self.stream_expr_origins.get(&span).cloned().unwrap_or_else(|| {
             StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown))
         })
@@ -1031,7 +1031,7 @@ impl Checker {
 
     pub(super) fn stream_block_origin(&self, arena: &ArenaProgram, block: BlockId) -> StreamOrigins {
         let Some(statement) = arena.arena.stmt_ids(arena.arena.block(block).statements).last() else { return StreamOrigins::default() };
-        let span = arena.arena.stmt(arena.arena.core_stmt_id(statement)).span;
+        let span = arena.arena.stmt_span(arena.arena.core_stmt_id(statement));
         self.stream_stmt_origins.get(&span).cloned().unwrap_or_else(|| StreamOrigins::unproven(self.expr_types.get(&span).unwrap_or(&Type::Unknown)))
     }
 
@@ -1080,30 +1080,30 @@ impl Checker {
             assert_eq!(owner.namespace, target.namespace);
             assert_eq!(owner.body, program.arena.span(program.arena.block(definition.body).span));
             for &expression in pending.generalized_noncompleting_expressions().into_iter().flatten() {
-                let span = program.arena.expr(expression).span;
+                let span = program.arena.expr_span(expression);
                 assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
                 noncompleting.insert(span);
             }
             for (&expression, &kind) in pending.generalized_constructor_producers().into_iter().flatten() {
                 assert!(super::scheme_body::matches_constructor_producer(program, expression, kind));
-                let span = program.arena.expr(expression).span;
+                let span = program.arena.expr_span(expression);
                 assert!(owner.body.source_id == span.source_id && owner.body.start() <= span.start() && span.end() <= owner.body.end());
                 nonmaterial.insert(span);
                 if kind == crate::sema::schemes::NonmaterialConstructor::EmptyMap {
-                    let ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { unreachable!() };
-                    let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { unreachable!() };
-                    nonmaterial.insert(program.arena.expr(callee).span);
-                    nonmaterial.insert(program.arena.expr(base).span);
+                    let ArenaExprKind::Call { callee, .. } = program.arena.expr_kind(expression) else { unreachable!() };
+                    let ArenaExprKind::Field { base, .. } = program.arena.expr_kind(callee) else { unreachable!() };
+                    nonmaterial.insert(program.arena.expr_span(callee));
+                    nonmaterial.insert(program.arena.expr_span(base));
                 }
             }
             for (&expression, ty) in pending.generalized_body_types().into_iter().flatten() {
                 let resource = ty.may_hold_resource();
-                generalized.entry(program.arena.expr(expression).span)
+                generalized.entry(program.arena.expr_span(expression))
                     .and_modify(|previous| *previous |= resource).or_insert(resource);
             }
             for (&statement, ty) in pending.generalized_tail_types().into_iter().flatten() {
                 let resource = ty.may_hold_resource();
-                generalized.entry(program.arena.stmt(statement).span)
+                generalized.entry(program.arena.stmt_span(statement))
                     .and_modify(|previous| *previous |= resource).or_insert(resource);
             }
         }
@@ -1145,7 +1145,7 @@ impl Checker {
     fn stream_call_explicit_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         let entries = arena.arena.call_args(args);
-        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned());
+        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr_span(expression)).cloned());
         let Ok(expanded) = expanded else { return Ok(BTreeMap::new()) };
         let slots = self.argument_bindings.get(&span);
         let definition = self.stream_target_definitions.get(&target).map(|target| arena.arena.function_def(target.definition));
@@ -1236,16 +1236,16 @@ impl Checker {
         if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(source.body.source_id) {
             let mut bindings = BTreeMap::new();
             for expression in arena.arena.source_rows().expr_ids(source.body.source_id) {
-                match &arena.arena.expr(expression).kind {
+                match &arena.arena.expr_kind(expression) {
                     crate::syntax::arena::ArenaExprKind::Ident(_) => {
-                        let span = arena.arena.expr(expression).span;
+                        let span = arena.arena.expr_span(expression);
                         let Some(binding) = resolved_bindings.expressions.get(&expression).copied() else { continue; };
                         bindings.entry(span).and_modify(|previous| *previous = None).or_insert(Some(binding));
                     }
                     crate::syntax::arena::ArenaExprKind::Call { args, .. } => {
                         for argument in arena.arena.call_args(*args) {
                             let crate::syntax::arena::ArenaCallArgKind::Splice { value, span } = &argument.kind else { continue; };
-                            if !matches!(&arena.arena.expr(*value).kind, crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
+                            if !matches!(&arena.arena.expr_kind(*value), crate::syntax::arena::ArenaExprKind::Ident(_)) { continue; }
                             let Some(binding) = resolved_bindings.expressions.get(value).copied() else { continue; };
                             bindings.entry(arena.arena.span(*span)).and_modify(|previous| *previous = None).or_insert(Some(binding));
                         }
@@ -1395,7 +1395,7 @@ impl Checker {
 
     pub(super) fn record_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) {
         if self.argument_projection_types.contains_key(&expression) { return; }
-        let span = arena.arena.expr(expression).span;
+        let span = arena.arena.expr_span(expression);
         if matches!(ty, Type::Invalid) && self.invocation_return_is_rejected(span) {
             self.stream_expr_origins.insert(span, StreamOrigins::opaque());
             return;
@@ -1423,7 +1423,7 @@ impl Checker {
     }
 
     fn derive_checked_stream_origin(&mut self, arena: &ArenaProgram, expression: ExprId, ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
-        let span = arena.arena.expr(expression).span;
+        let span = arena.arena.expr_span(expression);
         if !ty.may_hold_resource() || self.builtin_calls.get(&span) == Some(&super::CheckedBuiltinCall::Range) { return Ok(StreamOrigins::default()); }
         let application_scope = self.stream_origin_owner.map_or(crate::sema::constraints::CallableApplicationScope::Invocation, crate::sema::constraints::CallableApplicationScope::Declaration);
         if let Some(reference) = self.type_constraints.source_callable_application_reference(application_scope, span).map_err(|_| StreamOriginBoundaryError)? {
@@ -1436,7 +1436,7 @@ impl Checker {
             self.stream_target_definitions.insert(id, target);
             return Ok(StreamOrigins::callable(id));
         }
-        let origin = match arena.arena.expr(expression).kind {
+        let origin = match arena.arena.expr_kind(expression) {
             ArenaExprKind::Ident(_) | ArenaExprKind::Item => self.lookup_value_binding_for_expr(arena, expression).binding().map(|binding| binding.stream_origins.clone()),
             ArenaExprKind::List(elements) => {
                 let mut origin = StreamOrigins::default();
@@ -1762,7 +1762,7 @@ impl Checker {
         let owner = self.effect_declaration_id(arena, definition.body);
         let mut origin = self.stream_block_origin(arena, definition.body);
         if !definition.return_ty_defaulted && !type_may_carry_stream_origin(expected) { origin = StreamOrigins::default(); }
-        let tail = arena.arena.stmt_ids(arena.arena.block(definition.body).statements).last().map(|statement| arena.arena.stmt(arena.arena.core_stmt_id(statement)).span);
+        let tail = arena.arena.stmt_ids(arena.arena.block(definition.body).statements).last().map(|statement| arena.arena.stmt_span(arena.arena.core_stmt_id(statement)));
         if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
         }
@@ -1848,7 +1848,7 @@ mod tests {
                 for statement in statements { checker.check_stmt_arena(program, source, statement); }
                 assert!(checker.diagnostics.is_empty(), "{source}: {:?}", checker.diagnostics);
                 if source.starts_with("stream values()") {
-                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
+                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt_kind(statement) {
                         crate::syntax::arena::ArenaStmtKind::StreamDef(definition) => Some(program.arena.function_def(definition)),
                         _ => None,
                     }).expect("the checked stream declaration exists");
@@ -1859,7 +1859,7 @@ mod tests {
                 }
                 if source.starts_with("type Row =") || source.starts_with("pure identity(value) { value }\npure forward") {
                     let name = if source.starts_with("type Row =") { "choose" } else { "forward" };
-                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt(statement).kind {
+                    let definition = program.statement_ids().find_map(|statement| match program.arena.stmt_kind(statement) {
                         crate::syntax::arena::ArenaStmtKind::PureDef(definition) => {
                             let definition = program.arena.function_def(definition);
                             (definition.name.as_str().as_str() == name).then_some(definition)
@@ -1888,7 +1888,7 @@ mod tests {
             let program = &parsed.arena;
             let view = CheckBundleView::for_root(program, program.statements, None, Some(SourceId::new(0)));
             let expression = view.expr_ids().into_iter().next().unwrap();
-            let span = program.arena.expr(expression).span;
+            let span = program.arena.expr_span(expression);
             let mut checker = Checker::new(CheckOptions::for_execution());
             let actual = checker.type_constraints.fresh(span);
             checker.type_constraints.constrain(&actual, &Type::Int, span).unwrap();

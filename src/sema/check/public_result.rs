@@ -62,7 +62,7 @@ impl Checker {
         }
         let Some(source_id) = statements
             .first()
-            .map(|statement| arena.stmt(*statement).span.source_id)
+            .map(|statement| arena.stmt_span(*statement).source_id)
         else {
             return;
         };

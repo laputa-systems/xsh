@@ -10,8 +10,8 @@ impl Checker {
         statements: &[StmtId],
     ) {
         let infers_defaults = statements.iter().any(|&id| {
-            let kind = match program.arena.stmt(id).kind {
-                ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+            let kind = match program.arena.stmt_kind(id) {
+                ArenaStmtKind::Export(inner) => program.arena.stmt_kind(inner),
                 kind => kind,
             };
             let (ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)) = kind else {
@@ -28,8 +28,8 @@ impl Checker {
             let before = self.parameter_types.len();
             let mut probe = self.constraint_probe();
             for &id in statements {
-                let kind = match program.arena.stmt(id).kind {
-                    ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                let kind = match program.arena.stmt_kind(id) {
+                    ArenaStmtKind::Export(inner) => program.arena.stmt_kind(inner),
                     kind => kind,
                 };
                 match kind {

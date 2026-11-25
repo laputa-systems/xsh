@@ -145,11 +145,11 @@ impl Checker {
         ] = args
             && matches!(receiver_ty, Type::Set(_))
             && matches!(
-                arena.arena.expr(*receiver).kind,
+                arena.arena.expr_kind(*receiver),
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. }
             )
-            && let Some(receiver) = source.get(arena.arena.expr(*receiver).span.range())
-            && let Some(item) = source.get(arena.arena.expr(*item).span.range())
+            && let Some(receiver) = source.get(arena.arena.expr_span(*receiver).range())
+            && let Some(item) = source.get(arena.arena.expr_span(*item).range())
         {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                 span,
@@ -173,8 +173,8 @@ impl Checker {
         right: ExprId,
         expected: Option<&Type>,
     ) -> Type {
-        let left_span = arena.arena.expr(left).span;
-        let right_span = arena.arena.expr(right).span;
+        let left_span = arena.arena.expr_span(left);
+        let right_span = arena.arena.expr_span(right);
         let expected = expected.filter(|ty| matches!(ty, Type::Set(_)));
         let left_ty = self
             .check_expr_arena(arena, source, left, expected)

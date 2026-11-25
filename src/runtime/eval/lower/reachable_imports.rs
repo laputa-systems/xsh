@@ -155,7 +155,7 @@ impl Reach<'_> {
     }
 
     fn keep_named_in(&mut self, statement: StmtId, context: &ImportContext) {
-        let span = self.program.arena.stmt(statement).span;
+        let span = self.program.arena.stmt_span(statement);
         let text = self
             .sources
             .get(span.source_id)
@@ -220,7 +220,7 @@ fn is_word_byte(byte: u8) -> bool {
 }
 
 pub(super) fn module_function_definition(program: &ArenaProgram, statement: StmtId) -> Option<FunctionDefId> {
-    match program.arena.stmt(statement).kind {
+    match program.arena.stmt_kind(statement) {
         ArenaStmtKind::Export(inner) => module_function_definition(program, inner),
         ArenaStmtKind::PureDef(definition)
         | ArenaStmtKind::ProcDef(definition)
@@ -236,11 +236,11 @@ fn typed_namespace_module(
     statement: StmtId,
     module_index: &FxHashMap<&str, usize>,
 ) -> Option<usize> {
-    let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else { return None };
+    let ArenaStmtKind::Use(use_id) = program.arena.stmt_kind(statement) else { return None };
     let module = *module_index.get(program.arena.use_stmt(use_id).resolved.as_deref()?)?;
     let namespace = super::compact_use_import_namespace(program, use_id)?;
     let bindings = &bodies.resolved_bindings;
-    let binding = bindings.declaration_sites.get(&(program.arena.stmt(statement).span, namespace))?;
+    let binding = bindings.declaration_sites.get(&(program.arena.stmt_span(statement), namespace))?;
     if !matches!(bindings.declarations.get(binding)?.kind, BindingKind::Module(_)) {
         return None;
     }
@@ -259,7 +259,7 @@ fn statement_aliases(
 ) -> FxHashMap<Name, usize> {
     let mut aliases = FxHashMap::default();
     for statement in statements {
-        let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else { continue };
+        let ArenaStmtKind::Use(use_id) = program.arena.stmt_kind(statement) else { continue };
         let Some(key) = program.arena.use_stmt(use_id).resolved.as_deref() else { continue };
         let Some(&module) = module_index.get(key) else { continue };
         if let Some(namespace) = super::compact_use_import_namespace(program, use_id) {
@@ -272,8 +272,8 @@ fn statement_aliases(
 fn module_exports(program: &ArenaProgram, module: &ArenaUserModule) -> FxHashSet<Name> {
     let mut exports = FxHashSet::default();
     for statement in program.module_statements(module) {
-        let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else { continue };
-        match program.arena.stmt(inner).kind {
+        let ArenaStmtKind::Export(inner) = program.arena.stmt_kind(statement) else { continue };
+        match program.arena.stmt_kind(inner) {
             ArenaStmtKind::Let { target, .. }
             | ArenaStmtKind::Const { target, .. }
             | ArenaStmtKind::Var { target, .. } => {
@@ -312,7 +312,7 @@ fn namespace_escapes(
         let mut push = |child| stack.push(child);
         match child {
             ArenaChild::Stmt(statement) => {
-                match arena.stmt(statement).kind {
+                match arena.stmt_kind(statement) {
                     ArenaStmtKind::TailBareIdent(name) => escapes.extend(aliases.get(&name)),
                     ArenaStmtKind::Command(command) => {
                         if let ArenaCommand::Proc { name, .. } = &arena.command_stmt(command).command {
@@ -324,9 +324,9 @@ fn namespace_escapes(
                 }
                 arena.for_each_stmt_child(statement, SugarView::Core, push);
             }
-            ArenaChild::Expr(expression) => match arena.expr(expression).kind {
+            ArenaChild::Expr(expression) => match arena.expr_kind(expression) {
                 ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name }
-                    if let ArenaExprKind::Ident(namespace) = arena.expr(base).kind
+                    if let ArenaExprKind::Ident(namespace) = arena.expr_kind(base)
                         && let Some(&module) = aliases.get(&namespace) =>
                 {
                     if !modules[module].exports.contains(&name) {

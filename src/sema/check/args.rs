@@ -69,8 +69,8 @@ pub(super) enum SelectedMethodArguments {
 pub(super) fn key_validation_span(arena: &ArenaProgram, argument: &crate::sema::arguments::ExpandedArgument) -> Span {
     use crate::sema::arguments::ArgumentValueSource;
     match argument.value {
-        ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => arena.arena.expr(value).span,
-        ArgumentValueSource::RecordField { record, .. } => arena.arena.expr(record).span,
+        ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => arena.arena.expr_span(value),
+        ArgumentValueSource::RecordField { record, .. } => arena.arena.expr_span(record),
         ArgumentValueSource::CheckedType => argument.span,
     }
 }
@@ -123,7 +123,7 @@ fn static_positional_list_elements(
     expression: ExprId,
 ) -> Option<Vec<ExprId>> {
     let crate::syntax::arena::ArenaExprKind::List(elements) =
-        arena.arena.expr(expression).kind
+        arena.arena.expr_kind(expression)
     else {
         return None;
     };
@@ -231,7 +231,7 @@ impl Checker {
             {
                 let inputs = expanded.iter().zip(binding.argument_slots).filter_map(|(argument, slot)| {
                     let ArgumentValueSource::Expression(expression) = argument.value else { return None; };
-                    matches!(arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+                    matches!(arena.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(_))
                         .then(|| contract.params[slot].ty.clone())
                 }).collect::<Vec<_>>();
                 if !inputs.is_empty() {
@@ -406,7 +406,7 @@ impl Checker {
             vec![expanded_checked_argument(argument)]
         } else {
             let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
-                self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+                self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
             }) {
                 Ok(expanded) => expanded,
                 Err(error) => {
@@ -420,7 +420,7 @@ impl Checker {
                     && let Some(elements) = static_positional_list_elements(arena, expression)
                 {
                     for expression in elements {
-                        let span = arena.arena.expr(expression).span;
+                        let span = arena.arena.expr_span(expression);
                         let Some(ty) = self.expr_types.get(&span).cloned() else {
                             self.error(span, "static splice argument has no checked type", DiagnosticCode::CheckLocalInference);
                             return;
@@ -939,10 +939,10 @@ impl Checker {
         let contexts = std::mem::replace(&mut self.call_splice_item_contexts, previous)
             .expect("a checked static splice retains its item contexts");
         if matches!(authority, CallArgumentAuthority::KnownCallable { .. })
-            && let crate::syntax::arena::ArenaExprKind::List(elements) = arena.arena.expr(expression).kind
+            && let crate::syntax::arena::ArenaExprKind::List(elements) = arena.arena.expr_kind(expression)
         {
             for (element, (expected, _)) in arena.arena.list_elements(elements).zip(contexts.items) {
-                let span = arena.arena.expr(element.value).span;
+                let span = arena.arena.expr_span(element.value);
                 if let Some(actual) = self.expr_types.get(&span).cloned() {
                     self.expect_function_call_argument(authority, &expected, &actual, span);
                 }
@@ -1065,7 +1065,7 @@ impl Checker {
                                     "splice item type does not match rest parameter",
                                     DiagnosticCode::CheckTypeMismatch,
                                 ),
-                                Type::Any => self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span),
+                                Type::Any => self.reject_dynamic_use("an argument splice", None, arena.arena.expr_span(*value)),
                                 Type::Unknown => {}
                                 _ => self.error(
                                     splice_span,
@@ -1141,7 +1141,7 @@ impl Checker {
                         pending_static_items.extend(elements.iter().map(|element| {
                             (
                                 (!contextually_checked).then(|| item.as_ref().clone()),
-                                arena.arena.expr(*element).span,
+                                arena.arena.expr_span(*element),
                             )
                         }));
                         if let Some((ty, item_span)) =
@@ -1156,7 +1156,7 @@ impl Checker {
                         break;
                     }
                     if actual == Type::Any {
-                        self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span);
+                        self.reject_dynamic_use("an argument splice", None, arena.arena.expr_span(*value));
                     } else if !matches!(
                         actual.unvalidated(),
                         Type::List(_) | Type::Unknown
@@ -1359,7 +1359,7 @@ impl Checker {
             let schema = schemas.get(slot).cloned().flatten().unwrap_or_default();
             let previous_schema = self.boundary.expected_schema.replace(schema.clone());
             let checked_key = matches!(crate::sema::builtin_templates::registered_argument_check(checked_key_receiver, slot, &expected), Some(crate::sema::schemes::RegisteredArgumentCheck::UIntMapKey))
-                && !matches!(arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind, crate::syntax::arena::ArenaExprKind::Ident(_));
+                && !matches!(arena.arena.expr_kind(call_arg_expr_id_arena(&arg.kind)), crate::syntax::arena::ArenaExprKind::Ident(_));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, if checked_key { None } else { Some(&expected) });
             self.boundary.expected_schema = previous_schema;
             if !checked_key || !matches!(self.type_constraints.resolve(&actual), Ok(Type::Inference(_))) {
@@ -1435,7 +1435,7 @@ impl Checker {
             self.boundary.expected_schema = previous;
         }
         match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
-            self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+            self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
         }) {
             Ok(arguments) => {
                 let contexts = arguments.iter().map(|argument| contexts[argument.entry_index].clone()).collect();
@@ -1455,9 +1455,9 @@ impl Checker {
         values: &mut CheckedArgumentValues,
     ) {
         let super::method::HostCallSource::Expression(call) = source else { return; };
-        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr(*call).kind else { panic!("method evidence belongs to its original call") };
+        let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr_kind(*call) else { panic!("method evidence belongs to its original call") };
         let originals = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |expression| {
-            self.expr_types.get(&arena.arena.expr(expression).span).cloned()
+            self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
         }).expect("checked original method arguments retain their static layout");
         assert_eq!(originals.len(), values.arguments.len());
         for (original, checked) in originals.into_iter().zip(&mut values.arguments) {
@@ -1531,7 +1531,7 @@ impl Checker {
                 let first_diagnostic = self.diagnostics.len();
                 let ty = self.check_expr_arena(arena, source, *value, expected);
                 let argument_span = arena.arena.span(*span);
-                let value_span = arena.arena.expr(*value).span;
+                let value_span = arena.arena.expr_span(*value);
                 if *name == "ARGV" && value_span.start() == argument_span.start() {
                     // A punned argument writes its parameter label and binding
                     // once. Expand the value while retaining the original label.
@@ -1584,7 +1584,7 @@ impl Checker {
 #[allow(dead_code)]
 pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind) -> Span {
     match kind {
-        ArenaCallArgKind::Positional(value) => arena.arena.expr(*value).span,
+        ArenaCallArgKind::Positional(value) => arena.arena.expr_span(*value),
         ArenaCallArgKind::Splice { span, .. }
         | ArenaCallArgKind::NamedSpread { span, .. }
         | ArenaCallArgKind::Named { span, .. } => arena.arena.span(*span),

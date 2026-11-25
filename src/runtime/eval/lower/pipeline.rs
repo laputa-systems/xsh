@@ -171,12 +171,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let callee = super::compact_call_arg_expr(self.program.arena.call_args(stage.args).get(entry)?)?;
             if !visited.insert(callee) { return None; }
             let name = crate::sema::check::item_binding();
-            let span = self.program.arena.expr(callee).span;
+            let span = self.program.arena.expr_span(callee);
             let slot = slots.declare_scheme_source(self.declaration_binding(span, name)?, name, item_type.clone());
             let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
             lowered_types.insert(item, item_type.clone());
             let result = facts.expression_types().get(&callee)?.clone();
-            let namespace = matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
+            let namespace = matches!(self.program.arena.expr_kind(callee), ArenaExprKind::Field { base, .. }
                 if self.expression_binding(base).and_then(|binding| self.bodies.resolved_bindings.declarations.get(&binding)).is_some_and(|declaration| declaration.global && matches!(declaration.kind, super::BindingKind::Module(_))));
             let value = if namespace || self.declarations.static_callable_aliases.contains_key(&span)
                 || self.bodies.scheme_callable_calls.contains_key(&crate::sema::schemes::InstantiationSite::call(callee))
@@ -226,7 +226,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_scheme_static_callable_projection(
         &mut self, expression: ExprId, slots: &SlotScope, facts: &SchemeBodyFacts, visited: &mut FxHashSet<ExprId>, lowered_types: &mut BTreeMap<BuildExprId, SchemeType>,
     ) -> Option<BuildExprId> {
-        let ArenaExprKind::Field { base, name } = self.program.arena.expr(expression).kind else { return None; };
+        let ArenaExprKind::Field { base, name } = self.program.arena.expr_kind(expression) else { return None; };
         let binding = self.expression_binding(base)?;
         let declaration = self.bodies.resolved_bindings.declarations.get(&binding)?;
         if !declaration.global || !matches!(declaration.kind, super::BindingKind::Module(_)) { return None; }
@@ -244,11 +244,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             export => export.static_callable_value_type()?,
         };
-        let ArenaExprKind::Ident(namespace) = self.program.arena.expr(base).kind else { return None; };
+        let ArenaExprKind::Ident(namespace) = self.program.arena.expr_kind(base) else { return None; };
         if facts.expression_types().contains_key(&base) && !visited.insert(base) { return None; }
         let base = self.lower_bare_ident(base, namespace, slots)?;
         lowered_types.insert(base, source);
-        let value = push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span: self.program.arena.expr(expression).span });
+        let value = push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span: self.program.arena.expr_span(expression) });
         lowered_types.insert(value, SchemeType::Ground(result));
         Some(value)
     }
@@ -413,7 +413,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stage, slots, current_function, item_ty, Some((slot, value)),
                 ),
                 StreamStageKind::Each | StreamStageKind::Tee => {
-                    let span = self.program.arena.expr(callee).span;
+                    let span = self.program.arena.expr_span(callee);
                     let body = vec![push_build_row!(self, stmt, BuildStmtRow::Expr { value, span })];
                     if stage.kind == StreamStageKind::Each { LoweredPipelineStage::Each { slot, body } }
                     else { LoweredPipelineStage::Tee { slot, body } }
@@ -696,7 +696,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             values[slot] = Some(lowered_argument.lowered?);
             types[slot] = Some(argument.ty.clone());
             booleans[slot] = match argument.value {
-                ArgumentValueSource::Expression(expr) => match self.program.arena.expr(expr).kind {
+                ArgumentValueSource::Expression(expr) => match self.program.arena.expr_kind(expr) {
                     ArenaExprKind::Bool(value) => Some(value),
                     _ => None,
                 },
@@ -1051,10 +1051,10 @@ mod tests {
                 let crate::syntax::arena::ArenaStmtKind::Let {
                     initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression),
                     ..
-                } = parsed.arena.arena.stmt(statement).kind else {
+                } = parsed.arena.arena.stmt_kind(statement) else {
                     return None;
                 };
-                match parsed.arena.arena.expr(expression).kind {
+                match parsed.arena.arena.expr_kind(expression) {
                     crate::syntax::arena::ArenaExprKind::Pipeline { stages, .. } => parsed
                         .arena
                         .arena

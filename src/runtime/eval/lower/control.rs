@@ -26,9 +26,9 @@ pub(super) enum TailBlockPurpose { CheckedPosition, ProcCompletion }
 
 impl TailBlockPurpose {
     pub(super) fn completes_control(self, arena: &crate::syntax::arena::AstArena, tail: StmtId) -> bool {
-        self == Self::ProcCompletion && match arena.stmt(tail).kind {
+        self == Self::ProcCompletion && match arena.stmt_kind(tail) {
             ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. } => true,
-            ArenaStmtKind::Expr(expression) => matches!(arena.expr(expression).kind, ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }),
+            ArenaStmtKind::Expr(expression) => matches!(arena.expr_kind(expression), ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }),
             _ => false,
         }
     }
@@ -94,8 +94,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             )?);
             return Some(lowered);
         }
-        let tail_span = self.program.arena.stmt(tail).span;
-        let tail = match self.program.arena.stmt(tail).kind {
+        let tail_span = self.program.arena.stmt_span(tail);
+        let tail = match self.program.arena.stmt_kind(tail) {
             ArenaStmtKind::Expr(expr) => {
                 push_build_row!(
                     self,
@@ -106,7 +106,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )
             }
             ArenaStmtKind::Exit(status) => {
-                let span = self.program.arena.stmt(tail).span;
+                let span = self.program.arena.stmt_span(tail);
                 push_build_row!(
                     self,
                     stmt,
@@ -141,7 +141,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             },
             ArenaStmtKind::Match { value, arms } if purpose == TailBlockPurpose::ProcCompletion => {
-                self.lower_tail_match_stmt(value, arms, self.program.arena.stmt(tail).span, slots, current_function, item_slot, purpose)?
+                self.lower_tail_match_stmt(value, arms, self.program.arena.stmt_span(tail), slots, current_function, item_slot, purpose)?
             }
             ArenaStmtKind::Match { value, arms } => push_build_row!(
                 self,
@@ -150,7 +150,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: match self.lower_match_stmt_as_expr(
                         value,
                         arms,
-                        self.program.arena.stmt(tail).span,
+                        self.program.arena.stmt_span(tail),
                         slots,
                         current_function,
                         item_slot,
@@ -162,7 +162,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             if let Some(stmt) = self.lower_tail_match_stmt(
                                 value,
                                 arms,
-                                self.program.arena.stmt(tail).span,
+                                self.program.arena.stmt_span(tail),
                                 slots,
                                 current_function,
                                 item_slot,
@@ -254,12 +254,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (&statement, &collect) in &self.bodies.collect_yields {
             if collect != expression { continue; }
             let Some(transfer) = self.bodies.resource_transfer(crate::sema::check::ResourceTransferSite::Yield(statement)) else {
-                self.last_blocker_detail = Some((self.program.arena.stmt(statement).span, "missing checked resource-transfer fact for collected yield".into()));
+                self.last_blocker_detail = Some((self.program.arena.stmt_span(statement), "missing checked resource-transfer fact for collected yield".into()));
                 return None;
             };
             transfers_resource |= transfer;
             if checked_type.is_some() && let CollectLoweringDomain::Generalized { facts, .. } = domain {
-                let (value, delegated) = match self.program.arena.stmt(statement).kind {
+                let (value, delegated) = match self.program.arena.stmt_kind(statement) {
                     ArenaStmtKind::Yield(super::ArenaExprOrRun::Expr(value)) => (value, false),
                     ArenaStmtKind::YieldDelegate(value) => (value, true),
                     _ => return None,
@@ -344,7 +344,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let collect = *self.bodies.collect_yields.get(&statement)?;
         let CollectSlot::Generalized { ty, .. } = slots.collect_slots.get(&collect)? else { return None; };
         let ty = ty.clone();
-        let span = self.program.arena.stmt(statement).span;
+        let span = self.program.arena.stmt_span(statement);
         let value = self.lower_scheme_expression(value, slots, current_function, facts, visited, types, body)?;
         let items = if delegated && types.get(&value) == Some(&ty) { value } else {
             let row = if delegated { BuildExprRow::ListBuild(vec![(true, value, span)]) } else { BuildExprRow::List(vec![value]) };
@@ -371,7 +371,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 op: AssignOp::Add,
                 value: items,
                 check: None,
-                span: self.program.arena.stmt(id).span,
+                span: self.program.arena.stmt_span(id),
             }
         ))
     }
@@ -458,7 +458,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             expr,
             BuildExprRow::Try {
                 value: receiver,
-                span: self.program.arena.expr(base).span
+                span: self.program.arena.expr_span(base)
             }
         ))
     }
@@ -471,7 +471,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        let span = self.program.arena.expr(id).span;
+        let span = self.program.arena.expr_span(id);
         let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
         let slot = slots.reserve("optional receiver");
         let payload = self.concrete_checked_type(base).and_then(|ty| match ty.unvalidated() {
@@ -550,7 +550,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         };
         let has_pattern = branches.iter().any(|branch| {
             matches!(
-                self.program.arena.expr(branch.condition).kind,
+                self.program.arena.expr_kind(branch.condition),
                 ArenaExprKind::PatternCondition { .. }
             )
         });
@@ -561,7 +561,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 BuildStmtRow::PatternIf {
                     branches: lowered,
                     else_body,
-                    span: self.program.arena.expr(branches[0].condition).span
+                    span: self.program.arena.expr_span(branches[0].condition)
                 }
             ));
         }
@@ -1036,10 +1036,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let stmt = self.program.arena.core_stmt_id(stmt);
-        match self.program.arena.stmt(stmt).kind {
+        match self.program.arena.stmt_kind(stmt) {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::Exit(status) => {
-                let span = self.program.arena.stmt(stmt).span;
+                let span = self.program.arena.stmt_span(stmt);
                 self.lower_exit(status, span, slots, current_function, item_slot)
             }
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
@@ -1072,9 +1072,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// when it is the `?` of a deferred call.
     pub(super) fn propagation_span(&self, propagation: ExprId, operand: ExprId, slots: &SlotScope) -> Span {
         if slots.deferred_propagation == Some(propagation) {
-            self.program.arena.expr(operand).span
+            self.program.arena.expr_span(operand)
         } else {
-            self.program.arena.expr(propagation).span
+            self.program.arena.expr_span(propagation)
         }
     }
 
@@ -1086,9 +1086,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
-        if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(value).kind {
+        if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr_kind(value) {
             let body = self.lower_block(block, slots, current_function, item_slot)?;
-            let span = self.program.arena.expr(value).span;
+            let span = self.program.arena.expr_span(value);
             Some(push_build_row!(
                 self,
                 expr,
@@ -1107,9 +1107,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .checked_expr_type(value)
                 .or_else(|| self.bodies.expr_types.get(&value).cloned());
             if matches!(checked, Some(Type::Result(..)))
-                && !matches!(self.program.arena.expr(value).kind, ArenaExprKind::Try(_))
+                && !matches!(self.program.arena.expr_kind(value), ArenaExprKind::Try(_))
             {
-                let span = self.program.arena.expr(value).span;
+                let span = self.program.arena.expr_span(value);
                 return Some(push_build_row!(
                     self,
                     expr,
@@ -1186,7 +1186,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self.lower_scheme_statement(statement, slots, current_function?, facts, visited, types, &mut body)?;
                     }
                     if self.bodies.statement_positions.get(&last) != Some(&crate::sema::check::StatementPosition::Statement)
-                        && !matches!(self.program.arena.stmt(self.program.arena.core_stmt_id(last)).kind, ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_))
+                        && !matches!(self.program.arena.stmt_kind(self.program.arena.core_stmt_id(last)), ArenaStmtKind::Return(_) | ArenaStmtKind::Exit(_))
                     {
                         tail = Some(self.lower_scheme_tail_value(last, slots, current_function?, facts, visited, types, &mut body)?);
                     } else {
@@ -1570,8 +1570,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let stmt = self.program.arena.core_stmt_id(stmt);
-        let span = self.program.arena.stmt(stmt).span;
-        match self.program.arena.stmt(stmt).kind {
+        let span = self.program.arena.stmt_span(stmt);
+        match self.program.arena.stmt_kind(stmt) {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::Exit(status) => {
                 self.lower_exit(status, span, slots, current_function, item_slot)
@@ -1597,7 +1597,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let arena_branches = self.program.arena.if_branches(branches).to_vec();
                 let has_pattern = arena_branches.iter().any(|branch| {
                     matches!(
-                        self.program.arena.expr(branch.condition).kind,
+                        self.program.arena.expr_kind(branch.condition),
                         ArenaExprKind::PatternCondition { .. }
                     )
                 });

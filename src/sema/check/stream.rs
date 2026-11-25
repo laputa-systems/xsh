@@ -39,9 +39,9 @@ impl Checker {
             );
             output
         } else {
-            match self.check_pipeline_input_type(input_ty, arena.arena.expr(input).span) {
+            match self.check_pipeline_input_type(input_ty, arena.arena.expr_span(input)) {
                 Err(Type::Any) => {
-                    self.reject_dynamic_use("a pipeline source", None, arena.arena.expr(input).span);
+                    self.reject_dynamic_use("a pipeline source", None, arena.arena.expr_span(input));
                     Type::Stream(Box::new(Type::Unknown))
                 }
                 Ok(ty) => {
@@ -57,7 +57,7 @@ impl Checker {
                 }
                 Err(_) => {
                     self.error(
-                        arena.arena.expr(input).span,
+                        arena.arena.expr_span(input),
                         "structured pipelines require Stream or List input",
                         DiagnosticCode::CheckStreamInput,
                     );
@@ -158,24 +158,24 @@ impl Checker {
         let mut named_callback_ty = None;
         let mut named_stage_arguments = None;
         match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| {
-            self.expr_types.get(&arena.arena.expr(expr).span).cloned()
+            self.expr_types.get(&arena.arena.expr_span(expr)).cloned()
         }) {
             Ok(Some((entry, callee))) => {
                 if !self.stage_callable_is_static(arena, callee) {
                     self.error(
-                        arena.arena.expr(callee).span,
+                        arena.arena.expr_span(callee),
                         "stage callable must be a statically resolved named function or proc",
                         DiagnosticCode::CheckStreamCallable,
                     );
                     return Type::Unknown;
                 }
-                let item_span = arena.arena.expr(callee).span;
+                let item_span = arena.arena.expr_span(callee);
                 let checked_argument = super::args::CheckedCallArgument {
                     ty: &item_ty,
                     span: item_span,
                 };
-                if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
-                    && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
+                if let ArenaExprKind::Field { base, name } = arena.arena.expr_kind(callee)
+                    && let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(base)
                     && let Some(overloads) =
                         super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
                     && !self.check_stream_callable_module_overload(
@@ -783,7 +783,7 @@ impl Checker {
         if self.resolve_callable_alias_call(arena, callee).is_some() {
             return true;
         }
-        match arena.arena.expr(callee).kind {
+        match arena.arena.expr_kind(callee) {
             ArenaExprKind::Ident(name) => {
                 matches!(
                     self.lookup_value_binding_for_expr(arena, callee),
@@ -792,7 +792,7 @@ impl Checker {
                     && (self.pures.contains_key(&name) || self.procs.contains_key(&name))
             }
             ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
+                let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(base) else {
                     return false;
                 };
                 let namespace_binding = self.lookup_value_binding_for_expr(arena, base);
@@ -1020,7 +1020,7 @@ impl Checker {
             }
         }
         let expanded = match expand_named_arguments(arena, &args, |expr| {
-            self.expr_types.get(&arena.arena.expr(expr).span).cloned()
+            self.expr_types.get(&arena.arena.expr_span(expr)).cloned()
         }) {
             Ok(expanded) => expanded,
             Err(error) => {
@@ -1068,7 +1068,7 @@ impl Checker {
         }
         let literal_bool =
             |argument: &crate::sema::arguments::ExpandedArgument| match argument.value {
-                ArgumentValueSource::Expression(expr) => match arena.arena.expr(expr).kind {
+                ArgumentValueSource::Expression(expr) => match arena.arena.expr_kind(expr) {
                     ArenaExprKind::Bool(value) => Some(value),
                     _ => None,
                 },
@@ -1164,7 +1164,7 @@ impl Checker {
             if slot == 2
                 && let crate::sema::arguments::ArgumentValueSource::Expression(expr) =
                     argument.value
-                && matches!(arena.arena.expr(expr).kind, ArenaExprKind::Bool(false))
+                && matches!(arena.arena.expr_kind(expr), ArenaExprKind::Bool(false))
             {
                 continue;
             }
@@ -1270,7 +1270,7 @@ impl Checker {
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr: inner,
-            } if matches!(arena.arena.expr(*inner).kind, ArenaExprKind::Int(_)) => {
+            } if matches!(arena.arena.expr_kind(*inner), ArenaExprKind::Int(_)) => {
                 self.error(expr.span, "stream option must be positive", code);
             }
             _ => {}
@@ -1573,11 +1573,11 @@ mod static_namespace_identity_tests {
         let ArenaStmtKind::Let {
             initializer: ArenaExprOrRun::Expr(expression),
             ..
-        } = program.arena.stmt(statement).kind
+        } = program.arena.stmt_kind(statement)
         else {
             panic!("expected let initializer expression");
         };
-        let ArenaExprKind::Field { base, .. } = program.arena.expr(expression).kind else {
+        let ArenaExprKind::Field { base, .. } = program.arena.expr_kind(expression) else {
             panic!("expected field expression");
         };
         (expression, base)

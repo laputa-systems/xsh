@@ -109,7 +109,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return self
                 .program
                 .module_statements(module)
-                .find_map(|statement| match self.program.arena.stmt(statement).kind {
+                .find_map(|statement| match self.program.arena.stmt_kind(statement) {
                     ArenaStmtKind::Use(use_id) => module_owner(use_id),
                     _ => None,
                 });
@@ -119,7 +119,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .arena
             .stmt_ids(self.scope.root_statements())
             .find_map(|statement| {
-                match self.program.arena.stmt(statement).kind {
+                match self.program.arena.stmt_kind(statement) {
                     ArenaStmtKind::Use(use_id) => module_owner(use_id),
                     _ => None,
                 }
@@ -148,7 +148,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         name: Name,
         slots: &SlotScope,
     ) -> Option<BuildExprId> {
-        let span = self.program.arena.stmt(statement).span;
+        let span = self.program.arena.stmt_span(statement);
         self.lower_bare_function_value_at(span, name, slots)
     }
 
@@ -412,7 +412,7 @@ mod tests {
     fn identifier(parsed: &ArenaParseOutput, name: Name) -> ExprId {
         (0..parsed.arena.arena.expr_tags.len())
             .map(ExprId::from_index)
-            .find(|&id| matches!(parsed.arena.arena.expr(id).kind, ArenaExprKind::Ident(found) if found == name))
+            .find(|&id| matches!(parsed.arena.arena.expr_kind(id), ArenaExprKind::Ident(found) if found == name))
             .expect("the fixture contains the requested identifier")
     }
 
@@ -430,7 +430,7 @@ mod tests {
     fn tail_statement(parsed: &ArenaParseOutput, name: Name) -> StmtId {
         (0..parsed.arena.arena.stmt_tags.len())
             .map(StmtId::from_index)
-            .find(|&id| matches!(parsed.arena.arena.stmt(id).kind, ArenaStmtKind::TailBareIdent(found) if found == name))
+            .find(|&id| matches!(parsed.arena.arena.stmt_kind(id), ArenaStmtKind::TailBareIdent(found) if found == name))
             .expect("the fixture contains the requested tail")
     }
 
@@ -452,7 +452,7 @@ mod tests {
         (0..parsed.arena.arena.expr_tags.len())
             .map(ExprId::from_index)
             .find_map(|id| {
-                let ArenaExprKind::Record(fields) = parsed.arena.arena.expr(id).kind else {
+                let ArenaExprKind::Record(fields) = parsed.arena.arena.expr_kind(id) else {
                     return None;
                 };
                 parsed
@@ -561,7 +561,7 @@ mod tests {
         let (source, sources, parsed, declarations) = checked_program();
         let name = function_name(&parsed, "render_defaulted");
         let statement = tail_statement(&parsed, name);
-        let span = parsed.arena.arena.stmt(statement).span;
+        let span = parsed.arena.arena.stmt_span(statement);
         let (target, checked_type) = declarations
             .bodies
             .selected_function_references
@@ -590,7 +590,7 @@ mod tests {
         let (source, sources, parsed, mut declarations) = checked_program();
         let name = function_name(&parsed, "render_defaulted");
         let statement = tail_statement(&parsed, name);
-        let span = parsed.arena.arena.stmt(statement).span;
+        let span = parsed.arena.arena.stmt_span(statement);
         let factory_span = function_body_span(&parsed, function_name(&parsed, "factory"));
         let checked_return_type = declarations
             .function_return_types
@@ -639,10 +639,10 @@ mod tests {
         ));
         let matching_exprs: Vec<_> = (0..parsed.arena.arena.expr_tags.len())
             .map(ExprId::from_index)
-            .filter(|&id| parsed.arena.arena.expr(id).span == span)
+            .filter(|&id| parsed.arena.arena.expr_span(id) == span)
             .map(|id| {
                 (
-                    format!("{:?}", parsed.arena.arena.expr(id).kind),
+                    format!("{:?}", parsed.arena.arena.expr_kind(id)),
                     declarations.bodies.selected_function_calls.get(&id).copied(),
                 )
             })

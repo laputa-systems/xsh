@@ -81,7 +81,7 @@ impl Checker {
     }
 
     pub(super) fn retain_named_scheme_callable(&mut self, program: &ArenaProgram, named: &CallableAlias, expression: ExprId) -> Option<Type> {
-        let span = program.arena.expr(expression).span;
+        let span = program.arena.expr_span(expression);
         if !named.signature.scheme().callable().is_quantified() { return None; }
         let target = named.signature.definition_target()?;
         let contract = self.scheme_value_contract(program, &named.signature);
@@ -99,15 +99,15 @@ impl Checker {
         match self.intern_scheme_callable_relationship(prepared) {
             Ok(id) => {
                 let ty = Type::SchemeCallable(id);
-                if let ArenaExprKind::Try(inner) = program.arena.expr(expression).kind
-                    && let Some(projection) = self.projections.get(&program.arena.expr(inner).span)
+                if let ArenaExprKind::Try(inner) = program.arena.expr_kind(expression)
+                    && let Some(projection) = self.projections.get(&program.arena.expr_span(inner))
                     && projection.operation == crate::sema::projection::ProjectionOperation::Get
                     && let Some(actual) = projection.callable.as_ref().and_then(|export| self.resolve_generic_module_callable_alias(program, projection.receiver, projection.field, export))
                     && actual.signature.definition_target() == Some(target)
-                    && let Some(Type::Result(success, error)) = self.expr_types.get(&program.arena.expr(inner).span)
+                    && let Some(Type::Result(success, error)) = self.expr_types.get(&program.arena.expr_span(inner))
                     && success.as_ref() == &Type::Function(named.kind)
                 {
-                    self.record_expr_type(program.arena.expr(inner).span, Type::Result(Box::new(ty.clone()), error.clone()));
+                    self.record_expr_type(program.arena.expr_span(inner), Type::Result(Box::new(ty.clone()), error.clone()));
                 }
                 self.record_selected_function_value(span, &named.signature);
                 self.record_expr_type(span, ty.clone());
@@ -132,7 +132,7 @@ impl Checker {
                 return Type::Invalid;
             }
         };
-        self.record_expr_type(program.arena.expr(callee).span, Type::SchemeCallable(id));
+        self.record_expr_type(program.arena.expr_span(callee), Type::SchemeCallable(id));
         self.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite::call(span), id);
         let scheme = relationship.canonical().scheme();
         let contract = self.scheme_call_contract(scheme, None, None, span);
@@ -169,11 +169,11 @@ mod tests {
         let checked = Checker::check_arena_with_options(&parsed.arena, source, super::super::CheckOptions::for_execution());
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let lists = parsed.arena.arena.source_rows().expr_ids(source_id).filter(|&expression| {
-            matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
+            matches!(parsed.arena.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(_))
         }).collect::<Vec<_>>();
         assert_eq!(lists.len(), 2);
         for (expression, expected) in lists.into_iter().zip([vec!["echo", "preserve"], vec!["preserve"]]) {
-            let span = parsed.arena.arena.expr(expression).span;
+            let span = parsed.arena.arena.expr_span(expression);
             let Type::List(item) = &checked.expr_types[&span] else { panic!("a list keeps its item contract") };
             let Type::SchemeCallable(relationship) = item.as_ref() else { panic!("a callable list keeps its quantified relationship") };
             let relationship = checked.scheme_callables.get(*relationship).unwrap();
@@ -204,8 +204,8 @@ mod tests {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
             let checked = Checker::check_arena_with_options(&parsed.arena, &source, super::super::CheckOptions::for_execution());
             let lists = parsed.arena.arena.source_rows().expr_ids(crate::source::SourceId::new(0)).filter(|&expression| {
-                matches!(parsed.arena.arena.expr(expression).kind, crate::syntax::arena::ArenaExprKind::List(_))
-            }).map(|expression| parsed.arena.arena.expr(expression).span).collect();
+                matches!(parsed.arena.arena.expr_kind(expression), crate::syntax::arena::ArenaExprKind::List(_))
+            }).map(|expression| parsed.arena.arena.expr_span(expression)).collect();
             (source, checked, lists)
         }
 

@@ -53,10 +53,10 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
     ) -> bool {
-        let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind else {
+        let ArenaExprKind::Field { base, name } = arena.arena.expr_kind(callee) else {
             return false;
         };
-        let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind else {
+        let ArenaExprKind::Ident(module) = arena.arena.expr_kind(base) else {
             return false;
         };
         if module != "record"
@@ -124,12 +124,12 @@ impl Checker {
             ArenaCallArgKind::Named { name, value, .. } if name == "required" => value,
             _ => return None,
         };
-        let is_plain = matches!(arena.arena.expr(receiver).kind, ArenaExprKind::Record(_))
+        let is_plain = matches!(arena.arena.expr_kind(receiver), ArenaExprKind::Record(_))
             || self
                 .prepared_constants
                 .analyze_expression(&arena.arena, receiver)
                 .is_some_and(|value| matches!(value, LiteralConstant::Record(_)))
-            || matches!(arena.arena.expr(receiver).kind, ArenaExprKind::Call { callee, .. }
+            || matches!(arena.arena.expr_kind(receiver), ArenaExprKind::Call { callee, .. }
                 if self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some());
         if !is_plain {
             return None;
@@ -186,7 +186,7 @@ impl Checker {
             ..grouping::Context::open(grouping::Follow::adjacent(grouping::FollowToken::Require))
         };
         Some(RecordRequireMigration {
-            receiver: arena.arena.expr(receiver).span,
+            receiver: arena.arena.expr_span(receiver),
             schema,
             // Grouping reads the text only of a command form, which a plain
             // receiver never is, so the root's text is not consulted for a

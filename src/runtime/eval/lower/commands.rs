@@ -427,7 +427,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             )));
                         }
                         ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr) => {
-                            let span = self.program.arena.expr(expr).span;
+                            let span = self.program.arena.expr_span(expr);
                             lowered.push(LoweredFmtPart::Expr(
                                 self.lower_command_expression(expr, slots, current_function, item_slot, domain)?,
                                 span,
@@ -779,7 +779,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slots,
                     current_function,
                     item_slot, domain)?),
-                span: self.program.arena.expr(*expr).span,
+                span: self.program.arena.expr_span(*expr),
             },
         };
         Some(LoweredRunEnv {
@@ -832,7 +832,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 | ArenaWordPart::Interpolation(expr) => {
                                     lowered.push(LoweredFmtPart::Expr(
                                         self.lower_command_expression(expr, slots, current_function, item_slot, domain)?,
-                                        self.program.arena.expr(expr).span,
+                                        self.program.arena.expr_span(expr),
                                         None,
                                     ));
                                 }
@@ -857,7 +857,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         name: crate::symbol::Name,
         span: crate::source::Span,
     ) -> Option<BuildExprId> {
-        let base_kind = self.program.arena.expr(base).kind;
+        let base_kind = self.program.arena.expr_kind(base);
         match base_kind {
             ArenaExprKind::Ident(base_name) if base_name == "env" => {
                 if name == "PATH" {
@@ -888,7 +888,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 base: inner_base,
                 name: type_name,
             } => {
-                let inner_kind = self.program.arena.expr(inner_base).kind;
+                let inner_kind = self.program.arena.expr_kind(inner_base);
                 if let ArenaExprKind::Ident(inner_name) = inner_kind {
                     if inner_name == "env" {
                         let arg =
@@ -929,7 +929,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
-        let span = self.program.arena.stmt(id).span;
+        let span = self.program.arena.stmt_span(id);
         let value = match value {
             ArenaExprOrRun::Expr(expr) => {
                 self.lower_expr(expr, slots, current_function, item_slot)?
