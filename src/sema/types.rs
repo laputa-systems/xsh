@@ -1272,7 +1272,7 @@ impl Type {
     }
 
     pub(crate) fn contains_scheme_callable(&self) -> bool {
-        let mut inline = [self; 32];
+        let mut inline = [self; 128];
         let mut count = 1;
         let mut remaining = inline.len();
         while count > 0 && remaining > 0 {
@@ -1292,8 +1292,14 @@ impl Type {
         self.for_each_child(|child| pending.push(child));
         let mut visited = rustc_hash::FxHashSet::default();
         while let Some(ty) = pending.pop() {
-            if !visited.insert(std::ptr::from_ref(ty)) { continue; }
             if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            let shared = match ty {
+                Self::Record(fields) if Arc::strong_count(fields) > 1 => Some((0u8, Arc::as_ptr(fields).cast::<()>())),
+                Self::Module(module) if Arc::strong_count(module) > 1 => Some((1u8, Arc::as_ptr(module).cast::<()>())),
+                Self::Callable(callable) if Arc::strong_count(callable) > 1 => Some((2u8, Arc::as_ptr(callable).cast::<()>())),
+                _ => None,
+            };
+            if shared.is_some_and(|shared| !visited.insert(shared)) { continue; }
             ty.for_each_child(|child| pending.push(child));
         }
         false
@@ -1999,11 +2005,19 @@ mod tests {
         let callable = Type::SchemeCallable(crate::sema::scheme_callable::SchemeCallableOwner::fresh().id(0));
         assert!(!Type::List(Box::new(Type::Int)).contains_scheme_callable());
         assert!(Type::List(Box::new(callable.clone())).contains_scheme_callable());
-        let plain = Type::Union(vec![Type::Int; 64]);
+        let plain = Type::Union(vec![Type::Int; 256]);
         assert!(!plain.contains_scheme_callable());
-        let mut members = vec![Type::Int; 64];
+        let mut members = vec![Type::Int; 256];
         members[0] = callable;
         assert!(Type::Union(members).contains_scheme_callable());
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let name = crate::symbol::Name::intern("item");
+            let shared = Type::Record(std::sync::Arc::new(std::collections::BTreeMap::from([(name, Type::Int)])));
+            assert!(!Type::Union(vec![shared; 256]).contains_scheme_callable());
+            let callable = Type::SchemeCallable(crate::sema::scheme_callable::SchemeCallableOwner::fresh().id(0));
+            let shared = Type::Record(std::sync::Arc::new(std::collections::BTreeMap::from([(name, callable)])));
+            assert!(Type::Union(vec![shared; 256]).contains_scheme_callable());
+        });
     }
 
     use super::{CallableEffects, CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
