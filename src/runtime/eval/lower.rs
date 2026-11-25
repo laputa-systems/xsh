@@ -761,16 +761,7 @@ pub(super) fn lower_compact_function_units_into(
     // cursor per module produces every function's prefix in a single pass. A
     // fresh scan per function would make preparation quadratic in a module's
     // size.
-    let mut global_bindings: FxHashMap<Option<Name>, Vec<_>> = index.defs.iter()
-        .map(|function| (function.namespace, Vec::new()))
-        .collect();
-    for (id, declaration) in &declarations.bodies.resolved_bindings.declarations {
-        if *id == BindingId::args() {
-            for bindings in global_bindings.values_mut() { bindings.push((id, declaration)); }
-        } else if declaration.global {
-            if let Some(bindings) = global_bindings.get_mut(&declaration.namespace) { bindings.push((id, declaration)); }
-        }
-    }
+    let global_bindings = global_bindings_by_namespace(declarations, index.defs.iter().map(|function| function.namespace));
     let mut recorder = CompactLowerConstructProbe {
         program,
         scope: Rc::clone(&scope),
@@ -914,6 +905,20 @@ fn clear_function_scratch(scratch: &mut BuildScratch) {
     guard_sites.clear();
 }
 
+type GlobalBindingIndex<'a> = FxHashMap<Option<Name>, Vec<(&'a BindingId, &'a crate::sema::check::BindingDeclaration)>>;
+
+fn global_bindings_by_namespace<'a>(declarations: &'a CompactDeclOutput, namespaces: impl IntoIterator<Item = Option<Name>>) -> GlobalBindingIndex<'a> {
+    let mut global_bindings: GlobalBindingIndex<'a> = namespaces.into_iter().map(|namespace| (namespace, Vec::new())).collect();
+    for (id, declaration) in &declarations.bodies.resolved_bindings.declarations {
+        if *id == BindingId::args() {
+            for bindings in global_bindings.values_mut() { bindings.push((id, declaration)); }
+        } else if declaration.global {
+            if let Some(bindings) = global_bindings.get_mut(&declaration.namespace) { bindings.push((id, declaration)); }
+        }
+    }
+    global_bindings
+}
+
 pub(super) fn lower_compact_top_level_program_with_probe(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
@@ -925,6 +930,8 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     producer_demand: super::ProducerDemand,
 ) -> (ProgramBuild, CompactLowerConstructProbeOutput) {
     let scope = Rc::new(scope.clone());
+    let namespaces = std::iter::once(None).chain(scope.modules.iter().map(|module| Some(module.name)));
+    let global_bindings = global_bindings_by_namespace(declarations, namespaces);
     let mut probe = CompactLowerConstructProbe {
         program,
         scope: Rc::clone(&scope),
@@ -950,7 +957,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
-        global_bindings: None,
+        global_bindings: Some(&global_bindings),
         module_exports: Default::default(),
     };
     let root = program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>();
@@ -9918,7 +9925,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let slot = slots.reserve("top-level layout");
             slots.indices.insert(name, slot);
         }
-        for (&id, declaration) in &bindings.declarations {
+        let indexed = self.global_bindings.and_then(|bindings| bindings.get(&self.current_namespace));
+        let declarations = indexed.into_iter().flatten().copied()
+            .chain(indexed.is_none().then(|| bindings.declarations.iter()).into_iter().flatten());
+        for (&id, declaration) in declarations {
             if id != BindingId::args()
                 && (!declaration.global || declaration.namespace != self.current_namespace)
             {
