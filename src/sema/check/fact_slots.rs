@@ -39,9 +39,6 @@ struct TypeId(u32);
 #[derive(Clone, Copy, Debug)]
 struct TypeFlags {
     inference: bool,
-    recovery: bool,
-    any: bool,
-    scheme_callable: bool,
     deep: bool,
 }
 
@@ -72,13 +69,7 @@ impl TypeTable {
         };
         if let Some(index) = scalar {
             if let Some(id) = self.scalars[index] { return id; }
-            let flags = TypeFlags {
-                inference: false,
-                recovery: matches!(ty, super::Type::Unknown | super::Type::Invalid),
-                any: matches!(ty, super::Type::Any),
-                scheme_callable: false,
-                deep: false,
-            };
+            let flags = TypeFlags { inference: false, deep: false };
             let id = TypeId(u32::try_from(self.entries.len()).expect("type table overflow"));
             self.entries.push((ty, flags));
             self.scalars[index] = Some(id);
@@ -86,11 +77,8 @@ impl TypeTable {
         }
         fn inspect(ty: &super::Type, depth: usize, flags: &mut TypeFlags) {
             use super::Type;
-            flags.deep |= depth > 100;
+            flags.deep |= depth > crate::sema::constraints::MAX_TYPE_DEPTH;
             flags.inference |= matches!(ty, Type::Inference(_));
-            flags.recovery |= matches!(ty, Type::Unknown | Type::Invalid);
-            flags.any |= matches!(ty, Type::Any);
-            flags.scheme_callable |= matches!(ty, Type::SchemeCallable(_));
             match ty {
                 Type::Callable(callable) => flags.inference |= callable.sig.effects.has_inference(),
                 Type::Module(module) => for export in module.values() {
@@ -116,7 +104,7 @@ impl TypeTable {
         ty.for_each_child(|child| std::mem::discriminant(child).hash(&mut hasher));
         let hash = hasher.finish();
         if let Some(id) = self.by_hash.get(&hash).and_then(|ids| ids.iter().copied().find(|&id| self.get(id) == &ty)) { return id; }
-        let mut flags = TypeFlags { inference: false, recovery: false, any: false, scheme_callable: false, deep: false };
+        let mut flags = TypeFlags { inference: false, deep: false };
         inspect(&ty, 0, &mut flags);
         let id = TypeId(u32::try_from(self.entries.len()).expect("type table overflow"));
         self.entries.push((ty, flags));
@@ -352,11 +340,14 @@ mod tests {
             let flags = table.flags(id);
             assert_eq!(table.get(id), &ty);
             assert_eq!(flags.inference, ty.contains_inference());
-            assert_eq!(flags.recovery, ty.contains_recovery());
-            assert_eq!(flags.any, ty.contains_any());
-            assert_eq!(flags.scheme_callable, ty.contains_scheme_callable());
             assert_eq!(table.intern(ty), id);
         }
+        let mut too_deep = Type::Int;
+        for _ in 0..=crate::sema::constraints::MAX_TYPE_DEPTH { too_deep = Type::List(Box::new(too_deep)); }
+        let deep = table.intern(too_deep);
+        assert!(table.flags(deep).deep && !table.flags(deep).inference);
+        let shallow = table.intern(Type::List(Box::new(Type::Int)));
+        assert!(!table.flags(shallow).deep);
     }
 
     #[test]
@@ -371,9 +362,6 @@ mod tests {
             let flags = table.flags(id);
             assert_eq!(table.get(id), &ty);
             assert_eq!(flags.inference, ty.contains_inference());
-            assert_eq!(flags.recovery, ty.contains_recovery());
-            assert_eq!(flags.any, ty.contains_any());
-            assert_eq!(flags.scheme_callable, ty.contains_scheme_callable());
             assert_eq!(table.intern(ty), id);
         }
         let first = Span::new(SourceId::new(0), 1, 2);
