@@ -479,15 +479,13 @@ impl Ord for Name {
         if self == other {
             return Ordering::Equal;
         }
-        if let (Some(own), Some(theirs)) = (self.preloaded_text(), other.preloaded_text()) {
-            return own.cmp(theirs);
-        }
-        match (self.preloaded_text(), other.preloaded_text()) {
+        match (preloaded_bytes(self.0), preloaded_bytes(other.0)) {
+            (Some(own), Some(theirs)) => own.cmp(theirs),
             (Some(own), None) => {
-                with_dynamic_spellings(&[other.0], |spellings| own.cmp(spellings.text(other.0)))
+                with_dynamic_spellings(&[other.0], |spellings| own.cmp(spellings.text(other.0).as_bytes()))
             }
             (None, Some(theirs)) => {
-                with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0).cmp(theirs))
+                with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0).as_bytes().cmp(theirs))
             }
             _ => with_dynamic_spellings(&[self.0, other.0], |spellings| {
                 spellings.text(self.0).cmp(spellings.text(other.0))
@@ -837,23 +835,44 @@ pub fn dynamic_symbol_stats() -> (usize, usize) {
     (count, bytes)
 }
 
-fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
+fn preloaded_bytes(symbol: Symbol) -> Option<&'static [u8]> {
     let (start, len) = *PRELOADED_SYMBOL_RANGES.get(symbol.raw() as usize)?;
     let start = start as usize;
     let end = start.checked_add(len as usize)?;
     let bytes = PRELOADED_SYMBOL_TEXT.0.get(start..end)?;
+    Some(bytes)
+}
+
+fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
+    let bytes = preloaded_bytes(symbol)?;
     debug_assert!(bytes.is_ascii());
     str::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Interner, Name, SymbolOwner, interner};
+    use super::{Interner, Name, Symbol, SymbolOwner, PRELOADED_SYMBOL_COUNT, interner};
     use crate::modules::api_spec;
     use crate::sema::records::record_schemas;
     use crate::sema::types::Type;
     use xsh_registry::types::BUILTIN_TYPE_NAMES;
     use xsh_registry::{CORE_BUILTIN_SYMBOLS, FIXED_SEMANTIC_SYMBOLS};
+
+    #[test]
+    fn name_order_matches_spelling_for_preloaded_and_dynamic_symbols() {
+        let owner = SymbolOwner::new();
+        let mut names: Vec<_> = (0..PRELOADED_SYMBOL_COUNT)
+            .map(|raw| Name::from_symbol(Symbol::from_raw(raw)))
+            .collect();
+        names.extend(["", "A dynamic", "Int_", "zz_dynamic", "é_dynamic", "🦀_dynamic"]
+            .into_iter().map(|text| owner.intern(text)));
+        let spellings: Vec<_> = names.iter().map(|name| name.as_str()).collect();
+        for (i, left) in names.iter().enumerate() {
+            for (j, right) in names.iter().enumerate() {
+                assert_eq!(left.cmp(right), spellings[i].cmp(&spellings[j]), "{left} vs {right}");
+            }
+        }
+    }
 
     #[test]
     fn builtin_symbols_are_stable() {
