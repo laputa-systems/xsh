@@ -1,5 +1,5 @@
 FROM alpine:edge@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000
-COPY --from=oci.17166969.xyz/owned-tools@sha256:1a5d1306bb105f21b60c67bbf04677a92048c02a808ae9b29dfdac1a90f2f073 /opt/laputa /opt/laputa
+COPY --from=oci.17166969.xyz/owned-tools@sha256:aaec19e7a44cbc53b40db2d22093600ee888689b89be94da90e5398ed02f1883 /opt/laputa /opt/laputa
 ENV PATH=$PATH:/opt/laputa/bin
 ARG TARGETARCH
 RUN apk add --no-cache bash make perl autoconf automake libtool gettext quilt gperf texinfo gawk help2man rsync \
