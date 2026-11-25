@@ -1191,6 +1191,25 @@ impl Type {
     /// Transient variables must be substituted before publishing signatures,
     /// schema instances, or runtime checks.
     pub fn contains_inference(&self) -> bool {
+        let mut inline = [self; 32];
+        let mut count = 1;
+        while count > 0 {
+            count -= 1;
+            let ty = inline[count];
+            if matches!(ty, Self::Inference(_)) { return true; }
+            match ty {
+                Self::Callable(callable) if callable.sig.effects.has_inference() => return true,
+                Self::Module(exports) if exports.values().any(|export| matches!(export, ModuleExportType::Callable { sig, .. } if sig.effects.has_inference())) => return true,
+                _ => {}
+            }
+            let mut overflow = false;
+            ty.for_each_child(|child| {
+                if count == inline.len() { overflow = true; }
+                else { inline[count] = child; count += 1; }
+            });
+            if overflow { break; }
+        }
+        if count == 0 { return false; }
         let mut pending = Vec::new();
         let mut current = Some(self);
         while let Some(ty) = current.take().or_else(|| pending.pop()) {
@@ -1960,6 +1979,20 @@ pub(crate) fn callable_effects_match(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inference_search_handles_shallow_and_large_types() {
+        use super::Type;
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let span = crate::source::Span::new(crate::source::SourceId::new(0), 1, 2);
+        let variable = constraints.fresh(span);
+        assert!(!Type::List(Box::new(Type::Int)).contains_inference());
+        assert!(Type::List(Box::new(variable.clone())).contains_inference());
+        assert!(!Type::Union(vec![Type::Int; 64]).contains_inference());
+        let mut members = vec![Type::Int; 64];
+        members[0] = variable;
+        assert!(Type::Union(members).contains_inference());
+    }
+
     #[test]
     fn scheme_callable_search_handles_shallow_and_large_types() {
         use super::Type;
