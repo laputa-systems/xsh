@@ -2,22 +2,25 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-. /etc/os-release
-if [ "$ID" != ubuntu ] || [ "$VERSION_ID" != 24.04 ]; then
+os_id=$(awk -F= '$1 == "ID" { gsub(/"/, "", $2); print $2 }' /etc/os-release)
+os_version=$(awk -F= '$1 == "VERSION_ID" { gsub(/"/, "", $2); print $2 }' /etc/os-release)
+if [ "$os_id" != ubuntu ] || [ "$os_version" != 24.04 ]; then
   echo 'setup-dev supports Ubuntu 24.04 only' >&2
   exit 1
 fi
-packages='build-essential ca-certificates curl docker.io git git-lfs musl-tools pkg-config python3 ripgrep sudo zip'
-if [ "$(id -u)" -eq 0 ]; then
+set -- build-essential ca-certificates curl docker.io git git-lfs musl-tools pkg-config python3 sudo zip
+uid=$(id -u)
+account=$(id -un)
+if [ "$uid" -eq 0 ]; then
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
 elif command -v sudo >/dev/null 2>&1 && { id -nG | tr " " "\n" | grep -qx sudo || sudo -n true 2>/dev/null; }; then
   sudo apt-get update
-  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages
-  sudo usermod -aG docker "$(id -un)"
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+  sudo usermod -aG docker "$account"
 else
-  account=$(id -un)
-  su -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y $packages && usermod -aG docker $account"
+  package_args=$(printf " '%s'" "$@")
+  su -c "set --$package_args; apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \"\$@\" && usermod -aG docker '$account'"
 fi
 if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
@@ -29,6 +32,40 @@ case "$(uname -m)" in
   aarch64) target=aarch64-unknown-linux-musl ;;
   *) echo "setup-dev supports x86_64 and aarch64 only" >&2; exit 1 ;;
 esac
+asset="rg-$target.tar.xz"
+release='https://github.com/laputa-systems/rg/releases/download/release-ce347a1b5fe381a17d5bee20d594713263073450'
+scratch=${TMPDIR:-.work/tmp}
+mkdir -p "$scratch"
+tools_dir=$(mktemp -d "$scratch/xsh-rg.XXXXXX")
+cleanup() {
+  rm -rf "$tools_dir"
+}
+interrupt() {
+  signal=$1
+  cleanup
+  trap - 0 "$signal"
+  kill -s "$signal" "$$"
+}
+trap cleanup 0
+trap 'interrupt HUP' HUP
+trap 'interrupt INT' INT
+trap 'interrupt TERM' TERM
+timeout 120 curl --fail --location --silent --show-error "$release/SHA256SUMS" -o "$tools_dir/SHA256SUMS"
+timeout 120 curl --fail --location --silent --show-error "$release/$asset" -o "$tools_dir/$asset"
+awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print; count++ } END { exit count != 1 }' \
+  "$tools_dir/SHA256SUMS" > "$tools_dir/rg.sha256"
+(cd "$tools_dir" && sha256sum -c rg.sha256)
+python3 scripts/extract-owned-tool.py "$tools_dir/$asset" "rg-$target" "$tools_dir/rg-$target"
+test -x "$tools_dir/rg-$target"
+apt_get=$(command -v apt-get)
+bindir=$(dirname "$apt_get")
+if [ "$uid" -eq 0 ]; then
+  install -m 755 "$tools_dir/rg-$target" "$bindir/rg"
+elif command -v sudo >/dev/null 2>&1; then
+  sudo install -m 755 "$tools_dir/rg-$target" "$bindir/rg"
+else
+  su -c "install -m 755 '$tools_dir/rg-$target' '$bindir/rg'"
+fi
 rustup target add "$target"
 host=$(rustc -vV | sed -n 's/^host: //p')
 rust_lld="$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld"
