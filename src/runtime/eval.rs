@@ -583,7 +583,7 @@ struct Binding {
     identity: Option<RuntimeBindingIdentity>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug)]
 pub(super) struct RuntimeBindingIdentity {
     namespace: u64,
     start: u32,
@@ -591,6 +591,36 @@ pub(super) struct RuntimeBindingIdentity {
     name: Arc<str>,
     source: Arc<str>,
     owner: Option<Arc<str>>,
+}
+
+fn same_text(left: &Arc<str>, right: &Arc<str>) -> bool {
+    Arc::ptr_eq(left, right) || left == right
+}
+
+impl PartialEq for RuntimeBindingIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.namespace == other.namespace
+            && self.start == other.start
+            && self.len == other.len
+            && same_text(&self.name, &other.name)
+            && same_text(&self.source, &other.source)
+            && match (&self.owner, &other.owner) {
+                (Some(left), Some(right)) => same_text(left, right),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl Eq for RuntimeBindingIdentity {}
+
+impl std::hash::Hash for RuntimeBindingIdentity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.namespace.hash(state);
+        self.start.hash(state);
+        self.len.hash(state);
+        self.name.hash(state);
+    }
 }
 
 impl RuntimeBindingIdentity {

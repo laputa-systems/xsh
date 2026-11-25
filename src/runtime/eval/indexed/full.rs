@@ -27631,7 +27631,7 @@ assert first([], [7])? == {key: "", text: "empty"}
             let program = fixture("unsigned-captured-writer.xsh", concat!(
                 "var checked: UInt = 1\n",
                 "proc read() [error] -> Result[UInt] { Ok(checked) }\n",
-                "proc write() [] -> Unit { var scratch: Int = 0; scratch = -1 }\n",
+                "proc write() [] -> Unit { var scratch: Int = 0; scratch = -1; let _ = checked }\n",
                 "assert read()? == 1\n",
             ));
             let write = scheme_fixture_root_function(&program, "write");

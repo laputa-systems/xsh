@@ -115,3 +115,16 @@ if let callback = maybe {
     stderr: ["[check.unresolved-call]", "unresolved pure function call `callback`"],
   )?
 }
+
+test test_top_level_initializer_calls_a_later_function_that_reads_no_globals { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""let base = offset()
+pure offset() -> Int { 10 }
+pure shifted(value: Int) -> Int { value + base }
+print ${shifted(1)}
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "11\n"
+}
