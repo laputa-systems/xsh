@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 196
+Next: 198
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -10,6 +10,24 @@ owns VM milestones. Implement each item in its owning repository.
 
 Runtime proof limits appear in each ticket. Findings marked unproven need a
 reproducer. The [roadmap](docs/roadmap.md) owns campaign status and sequence.
+
+### XSH-196 · P1 · Scalar helper allocations scale with call count, failing the Linux test job
+
+- **Area:** Runtime performance, CI
+- **Where:** `crates/xsht/tests/cli.rs:2143` `cli::profile_scalar_helper_allocations_do_not_scale_with_calls`
+- **Problem:** The Linux test job fails on master with `2042 allocations for 1000 calls, 20042 for 10000 calls`, about two allocations per call. It was hidden while `dev/images.lock` was stale, because that check stopped the job before the tests ran; master CI run 45687918585 (image `1bf7429f`) and laputa-systems/xsh#16 (owned-tools v4 image `b8dd45b4`) fail identically, so the test image is not the cause.
+- **Recommendation:** Bisect the commits merged while the lock was stale for the per-call allocation, remove it, and keep the test as the gate.
+- **Fix with:** root-cause
+- **Effort:** M
+
+### XSH-197 · P2 · `make lint` fails on master with lint warnings in XSH sources
+
+- **Area:** Lint, CI
+- **Where:** Lint on Ubuntu job (`Ensure XSH checks, lints and generated docs pass`); master run 45687918711
+- **Problem:** The lint job exits 1 on master with `warn[lint.prefer-fail]`, `warn[lint.command-value]` (redundant parentheses) and `warn[lint.unused-local]` findings in repository XSH sources, also hidden while the image lock was stale.
+- **Recommendation:** Apply the lint's suggested rewrites (or record a reason per suppressed site) until the job passes on master.
+- **Fix with:** none
+- **Effort:** S
 
 ### XSH-193 · P2 · Errors raised inside a `module.load` program render against the loading program's sources
 
