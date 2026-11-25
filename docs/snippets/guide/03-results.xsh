@@ -2,7 +2,7 @@ error LookupError = Missing(key: Str) | Malformed(text: Str)
 
 pure port_of(settings: Map[Str], key: Str) -> Result[Int, LookupError] {
   let text = settings.get(key) ?? ""
-  return Err(.Missing(key:)) when text == ""
+  fail .Missing(key:) when text == ""
 
   text.parse_int() ?? Err(LookupError.Malformed(text:))?
 }
@@ -15,6 +15,6 @@ for key in ["admin", "metrics"] {
   match port_of(settings, key) {
     Ok(port) => print f"{key}: {port}"
     Err(.Malformed {text}) => print f"{key}: not a number: {text}"
-    Err(.Missing {key}) => print f"{key}: not set"
+    Err(.Missing {key: _}) => print f"{key}: not set"
   }
 }

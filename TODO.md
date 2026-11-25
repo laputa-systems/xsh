@@ -11,15 +11,6 @@ owns VM milestones. Implement each item in its owning repository.
 Runtime proof limits appear in each ticket. Findings marked unproven need a
 reproducer. The [roadmap](docs/roadmap.md) owns campaign status and sequence.
 
-### XSH-197 · P2 · `make lint` fails on master with lint warnings in XSH sources
-
-- **Area:** Lint, CI
-- **Where:** Lint on Ubuntu job (`Ensure XSH checks, lints and generated docs pass`); master run 45687918711
-- **Problem:** The lint job exits 1 on master with `warn[lint.prefer-fail]`, `warn[lint.command-value]` (redundant parentheses) and `warn[lint.unused-local]` findings in repository XSH sources, also hidden while the image lock was stale.
-- **Recommendation:** Apply the lint's suggested rewrites (or record a reason per suppressed site) until the job passes on master.
-- **Fix with:** none
-- **Effort:** S
-
 ### XSH-193 · P2 · Errors raised inside a `module.load` program render against the loading program's sources
 
 - **Area:** Runtime modules, diagnostics
