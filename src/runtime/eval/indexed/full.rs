@@ -640,6 +640,40 @@ enum CheckedRecordFieldWriter {
 /// Shares bounded target lookup between checked references and module exports.
 struct FunctionSignatureIndex {
     functions: FxHashMap<(Option<Name>, Name), FunctionIdentitySignatures>,
+    builtin_methods: BuiltinMethodSignatures,
+}
+
+/// Builtin method signatures instantiated for a receiver type during one
+/// verification. The registry and template instantiation are fixed and
+/// structural in the receiver type, so an equal receiver and method name
+/// always instantiate equal signatures.
+#[derive(Default)]
+struct BuiltinMethodSignatures {
+    by_name: RefCell<FxHashMap<Box<str>, Vec<(Type, Option<Vec<crate::modules::signature::ModuleFnSig>>)>>>,
+}
+
+impl BuiltinMethodSignatures {
+    fn signatures(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Vec<crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        if let Some(instantiated) = self
+            .by_name
+            .borrow()
+            .get(name)
+            .and_then(|receivers| receivers.iter().find(|(receiver, _)| receiver == receiver_type))
+        {
+            return Ok(instantiated.1.clone());
+        }
+        let signatures = FullDecoder::registered_method_signatures(receiver_type, name)?;
+        self.by_name
+            .borrow_mut()
+            .entry(name.into())
+            .or_default()
+            .push((receiver_type.clone(), signatures.clone()));
+        Ok(signatures)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -674,7 +708,7 @@ impl FunctionSignatureIndex {
                 | FunctionSignatureLookup::Ambiguous => FunctionSignatureLookup::Ambiguous,
             };
         }
-        Ok(Self { functions })
+        Ok(Self { functions, builtin_methods: BuiltinMethodSignatures::default() })
     }
 
     fn module_export(
@@ -11812,11 +11846,28 @@ impl<'a> FullDecoder<'a> {
         Ok((!signatures.is_empty()).then_some(signatures))
     }
 
+    fn method_signatures(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Vec<crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        match &self.function_signature_index {
+            Some(index) => index.builtin_methods.signatures(receiver_type, name),
+            None => Self::registered_method_signatures(receiver_type, name),
+        }
+    }
+
     fn registered_method_return_type(
         receiver_type: &Type,
         name: &str,
     ) -> Result<Option<Type>, IrVerifyError> {
-        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+        Self::registered_return_type(Self::registered_method_signatures(receiver_type, name)?)
+    }
+
+    fn registered_return_type(
+        signatures: Option<Vec<crate::modules::signature::ModuleFnSig>>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(signatures) = signatures else {
             return Ok(None);
         };
         let mut return_type = None;
@@ -11840,7 +11891,7 @@ impl<'a> FullDecoder<'a> {
         name: &str,
         args: &[usize],
     ) -> Result<(), IrVerifyError> {
-        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+        let Some(signatures) = self.method_signatures(receiver_type, name)? else {
             return Err(IrVerifyError::new(
                 "checked method has no exact parameter signature",
             ));
@@ -11905,7 +11956,7 @@ impl<'a> FullDecoder<'a> {
         name: &str,
         args: &[usize],
     ) -> Result<Option<Type>, IrVerifyError> {
-        let Some(registered) = Self::registered_method_return_type(receiver_type, name)? else {
+        let Some(registered) = Self::registered_return_type(self.method_signatures(receiver_type, name)?)? else {
             return Ok(None);
         };
         if name != "get" || args.len() != 1 {
