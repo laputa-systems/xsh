@@ -5,7 +5,7 @@ This is the single plan for this repository: all current and future work, and th
 ## Status
 
 - **Active:** performance and profiling. M2 is met: B1b recorded Laputa's nine registry rows on 2026-11-24 in [performance baseline](TESTING.md#performance-baseline), every oracle passing and every scenario median within its anchor tolerance, but as busy-host observations during the openorange cutover (owner, 2026-11-24). Judge optimizations by cycle counts until the host is quiet. The scenario rows time the Laputa seed's `xsh` (XSH `748dc69e`), so XSH gains reach them only after a seed rebuild.
-- Last integrated revision: `56a1a2acf`, each slice green on its `cargo dev gate`.
+- Last integrated revision: `bd02f2c38`, each slice green on its `cargo dev gate`.
 - B1 `b4c3b7afd`: quiet-host baselines at `5784eaec` in [performance baseline](TESTING.md#performance-baseline) for every XSH-side family. That covers the 15 core cases through `dev.performance.core_bench`, comparative directory 9.31 ms and JSON 7.52 ms (fastest of seven interpreters), and `tooling-check` 0.0699 s. That last row's anchor regression is not in the checker: a cycle A/B against the anchor revision matches instructions within 0.3%.
 - O4 slices since B1 (cycles:u, interleaved, oracles pass):
   - `wc --lines` 16 MiB: -99% (`dd7d2e924`).
@@ -24,6 +24,7 @@ This is the single plan for this repository: all current and future work, and th
   - Loaded modules lower and verify only the import functions they reach, and the load workspace no longer accumulates earlier entries: world plan -20.4% instructions, 80-load probe -70.6% (`64f8d4040`).
   - Checking reuses merged import facts per module record, skips default-parameter probes when no parameter infers its default, and skips facts for sources without checked facts: world plan -8.9% instructions, `pm --help` -14.3%, 80-load probe -18.8% (`56a1a2acf`).
   - Binding prunes check only the key namespaces no dynamic function or the running program covers, cached by key and dynamic-function revisions: world plan -4.3% (`f29e02bc4`).
+  - Ground functions capture only the top-level bindings they read (plus the typed script arguments), and binding identities hash without their source path: world plan -3.7% (`bd02f2c38`). This also fixed a top-level initializer that called a later function failing with `unknown captured name`.
   - Laputa's plan groups dependency edges by source once instead of scanning every edge per node: world plan -6.8% (Laputa `7c220954`).
 - Release `dev.performance.core_bench` on master (busy host, cycles:u) against a release product built after `dd7d2e924`: `wc` -24%, `sort` -23%, `awk` -22%, JSON -29%, traversal -24% on the large cases.
 - Defects are fixed when found, not ticketed: membership in an empty list literal failed the IR verifier and now compiles (`8e3095d93`).
