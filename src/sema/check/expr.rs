@@ -109,7 +109,7 @@ impl Checker {
             }
             ArenaExprKind::Index { base, .. } => {
                 let context = self.schema_expectation_for_expr(arena, base)?;
-                let ty = self.expr_types.get(&arena.arena.expr_span(base))?;
+                let ty = self.expr_types.get_expr(arena, base)?;
                 let component = match ty.unvalidated() {
                     Type::List(_) => SchemaComponent::Item,
                     Type::Map(_, _) => SchemaComponent::Value,
@@ -317,7 +317,7 @@ impl Checker {
                 .children.get(&SchemaComponent::Success).cloned(),
             ArenaExprKind::Index { base, .. } => {
                 let context = self.checked_schema_for_expr(arena, base)?;
-                let component = match self.expr_types.get(&arena.arena.expr_span(base))?.unvalidated() {
+                let component = match self.expr_types.get_expr(arena, base)?.unvalidated() {
                     Type::List(_) => SchemaComponent::Item,
                     Type::Map(_, _) => SchemaComponent::Value,
                     _ => return None,
@@ -883,7 +883,7 @@ impl Checker {
         }
         if let Some(ty) = self.prepared_constants.types.get(&id) {
             let ty = ty.clone();
-            self.record_expr_type(expr.span, ty.clone());
+            self.expr_types.insert_expr(arena, id, ty.clone());
             return ty;
         }
         let ty = match &expr.kind {
@@ -1488,7 +1488,7 @@ impl Checker {
                     self.statically_resolved_call_spans.insert(expr.span);
                 }
                 let erased_proc_call = matches!(arena.arena.expr_kind(*callee), ArenaExprKind::Field { base, name } if name == "call"
-                    && self.expr_types.get(&arena.arena.expr_span(base)) == Some(&Type::Function(crate::sema::types::CallableKind::Proc)));
+                    && self.expr_types.get_expr(arena, base) == Some(&Type::Function(crate::sema::types::CallableKind::Proc)));
                 if may_mutate || erased_proc_call {
                     self.invalidate_mutable_narrowings();
                 }
@@ -1596,7 +1596,7 @@ impl Checker {
             ArenaExprKind::Spawn(form) => self.check_spawn_form_arena(arena, source, form),
             ArenaExprKind::Wait(form) => self.check_wait_form_arena(arena, source, form),
         };
-        self.record_expr_type(expr.span, ty.clone());
+        self.expr_types.insert_expr(arena, id, ty.clone());
         if ty == Type::Bool {
             let proof = self.infer_condition_proof_arena(arena, id);
             self.condition_proofs.insert(id, std::sync::Arc::new(proof));

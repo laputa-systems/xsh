@@ -269,9 +269,9 @@ impl Checker {
             !self.local_inference.nonmaterial_expressions.contains(span)
                 || !matches!(constraints.resolve(ty), Ok(resolved) if resolved.contains_inference())
         });
-        for (span, ty) in &mut self.expr_types {
+        self.expr_types.for_each_sorted_mut(|span, ty| {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
-        }
+        });
         for ((_, span), fact) in &mut self.stream_stage_types {
             finalize_type(
                 constraints,
@@ -836,7 +836,7 @@ impl Checker {
         let mut candidates = BTreeMap::new();
         collect_empty_constructors(program, expression, &mut candidates);
         candidates.retain(|expression, kind| {
-            self.expr_types.get(&program.arena.expr_span(*expression)).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference())
+            self.expr_types.get_expr(program, *expression).is_some_and(|ty| ty.contains_recovery() || ty.contains_inference())
                 && (*kind != crate::sema::schemes::NonmaterialConstructor::EmptyMap || self.is_checked_empty_map_constructor(program, *expression))
         });
         let mut surviving = BTreeSet::new();

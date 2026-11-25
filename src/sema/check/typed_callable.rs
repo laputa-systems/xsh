@@ -71,7 +71,7 @@ impl Checker {
                 && self.projections.get(&arena.arena.expr_span(inner))
                     .is_some_and(|projection| projection.operation == crate::sema::projection::ProjectionOperation::Get)
                 && matches!(callable, Type::Callable(_))
-                && let Some(Type::Result(success, error)) = self.expr_types.get(&arena.arena.expr_span(inner))
+                && let Some(Type::Result(success, error)) = self.expr_types.get_expr(arena, inner)
                 && success.as_ref() == &Type::Function(kind)
             {
                 self.record_expr_type(arena.arena.expr_span(inner), Type::Result(Box::new(callable.clone()), error.clone()));

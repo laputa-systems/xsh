@@ -1032,7 +1032,7 @@ impl Checker {
     pub(super) fn stream_binding_initializer(&mut self, arena: &ArenaProgram, initializer: ArenaExprOrRun, binding_type: &Type) -> StreamOrigins {
         match initializer {
             ArenaExprOrRun::Expr(expression) => {
-                let ty = self.expr_types.get(&arena.arena.expr_span(expression)).cloned().unwrap_or(Type::Unknown);
+                let ty = self.expr_types.get_expr(arena, expression).cloned().unwrap_or(Type::Unknown);
                 self.stream_success_origin(arena, expression, &ty)
             }
             ArenaExprOrRun::Run(_) => StreamOrigins::unproven(binding_type),
@@ -1178,7 +1178,7 @@ impl Checker {
     fn stream_call_explicit_actuals(&self, arena: &ArenaProgram, args: super::ArenaRange, span: Span, target: EffectDeclarationId) -> Result<BTreeMap<usize, StreamOrigins>, StreamOriginBoundaryError> {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         let entries = arena.arena.call_args(args);
-        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get(&arena.arena.expr_span(expression)).cloned());
+        let expanded = expand_named_arguments(arena, entries, |expression| self.expr_types.get_expr(arena, expression).cloned());
         let Ok(expanded) = expanded else { return Ok(BTreeMap::new()) };
         let slots = self.argument_bindings.get(&span);
         let definition = self.stream_target_definitions.get(&target).map(|target| arena.arena.function_def(target.definition));

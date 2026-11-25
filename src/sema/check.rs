@@ -29,9 +29,14 @@ pub struct CheckBundleView<'a> {
     source_ids: FxHashSet<SourceId>,
     all_sources: bool,
     pub(super) entry_context: Option<Arc<()>>,
+    fact_slots: Arc<std::sync::OnceLock<Arc<fact_slots::FactSlots>>>,
 }
 
 impl<'a> CheckBundleView<'a> {
+    fn fact_slots(&self) -> Arc<fact_slots::FactSlots> {
+        Arc::clone(self.fact_slots.get_or_init(|| Arc::new(fact_slots::FactSlots::new(self.program))))
+    }
+
     pub(super) fn new(
         program: &'a ArenaProgram,
         sources: Option<&'a SourceMap>,
@@ -98,6 +103,7 @@ impl<'a> CheckBundleView<'a> {
             source_ids,
             all_sources: false,
             entry_context: None,
+            fact_slots: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -130,6 +136,7 @@ impl<'a> CheckBundleView<'a> {
             source_ids,
             all_sources: false,
             entry_context: None,
+            fact_slots: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -150,6 +157,7 @@ impl<'a> CheckBundleView<'a> {
             source_ids,
             all_sources: false,
             entry_context: None,
+            fact_slots: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -164,6 +172,7 @@ impl<'a> CheckBundleView<'a> {
             source_ids: FxHashSet::default(),
             all_sources: true,
             entry_context: None,
+            fact_slots: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -305,6 +314,8 @@ fn assignment_owner_for_root(
         .map(|source_id| (source_id, statements))
 }
 
+#[path = "check/fact_slots.rs"]
+mod fact_slots;
 #[path = "check/args.rs"]
 mod args;
 #[path = "check/loop_back_edge.rs"]
@@ -1888,7 +1899,7 @@ pub struct Checker {
     diagnostics: Vec<Diagnostic>,
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
-    expr_types: BTreeMap<Span, Type>,
+    expr_types: fact_slots::ExpressionTypes,
     guarded_nodes: BTreeMap<Span, super::constraints::WrapperOperationId>,
     binary_operators: BTreeMap<ExprId, CheckedBinaryOperator>,
     compound_assignment_operations: BTreeMap<ExprId, Span>,
@@ -1928,7 +1939,7 @@ pub struct Checker {
     builtin_calls: BTreeMap<Span, CheckedBuiltinCall>,
     result_constructors: BTreeMap<Span, CheckedResultConstructor>,
     cardinality_preserving_collection_calls: BTreeSet<Span>,
-    propagating_error_spans: BTreeSet<Span>,
+    propagating_error_spans: fact_slots::ExpressionSpans,
     latent_stream_error_spans: BTreeSet<Span>,
     fallible_pipeline_stage_spans: BTreeSet<Span>,
     propagating_stage_callback_spans: BTreeSet<Span>,
@@ -2188,7 +2199,7 @@ impl Checker {
             requirement_targets: self.requirement_targets,
             requirement_expected_targets: self.requirement_expected_targets,
             reveal_types: self.reveal_types,
-            expr_types: self.expr_types,
+            expr_types: self.expr_types.into_map(),
             binary_operators: self.binary_operators,
             stream_stage_types: self.stream_stage_types,
             projections: self.projections,
@@ -2226,7 +2237,7 @@ impl Checker {
                 builtin_calls: self.builtin_calls,
                 result_constructors: self.result_constructors,
                 cardinality_preserving_collection_calls: self.cardinality_preserving_collection_calls,
-                propagating_error_spans: self.propagating_error_spans,
+                propagating_error_spans: self.propagating_error_spans.into_set(),
                 latent_stream_error_spans: self.latent_stream_error_spans,
                 fallible_pipeline_stage_spans: self.fallible_pipeline_stage_spans,
                 propagating_stage_callback_spans: self.propagating_stage_callback_spans,
@@ -2322,7 +2333,7 @@ impl Checker {
             diagnostics: Vec::new(),
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
-            expr_types: BTreeMap::new(),
+            expr_types: fact_slots::ExpressionTypes::default(),
             guarded_nodes: BTreeMap::new(),
             binary_operators: BTreeMap::new(),
             compound_assignment_operations: BTreeMap::new(),
@@ -2359,7 +2370,7 @@ impl Checker {
             builtin_calls: BTreeMap::new(),
             result_constructors: BTreeMap::new(),
             cardinality_preserving_collection_calls: BTreeSet::new(),
-            propagating_error_spans: BTreeSet::new(),
+            propagating_error_spans: fact_slots::ExpressionSpans::default(),
             latent_stream_error_spans: BTreeSet::new(),
             fallible_pipeline_stage_spans: BTreeSet::new(),
             propagating_stage_callback_spans: BTreeSet::new(),
@@ -2523,6 +2534,9 @@ impl Checker {
     ) {
         self.resolved_command_sites.clear();
         let program = bundle.program;
+        let slots = bundle.fact_slots();
+        self.expr_types.attach(Arc::clone(&slots));
+        self.propagating_error_spans.attach(slots);
         self.bundle_root_statements = Some(bundle.root_statements);
         self.bundle_module_keys = Some(
             bundle

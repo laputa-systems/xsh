@@ -158,7 +158,7 @@ impl Checker {
         let mut named_callback_ty = None;
         let mut named_stage_arguments = None;
         match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| {
-            self.expr_types.get(&arena.arena.expr_span(expr)).cloned()
+            self.expr_types.get_expr(arena, expr).cloned()
         }) {
             Ok(Some((entry, callee))) => {
                 if !self.stage_callable_is_static(arena, callee) {
@@ -1020,7 +1020,7 @@ impl Checker {
             }
         }
         let expanded = match expand_named_arguments(arena, &args, |expr| {
-            self.expr_types.get(&arena.arena.expr_span(expr)).cloned()
+            self.expr_types.get_expr(arena, expr).cloned()
         }) {
             Ok(expanded) => expanded,
             Err(error) => {

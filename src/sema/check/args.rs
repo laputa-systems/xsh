@@ -406,7 +406,7 @@ impl Checker {
             vec![expanded_checked_argument(argument)]
         } else {
             let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
-                self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
+                self.expr_types.get_expr(arena, expression).cloned()
             }) {
                 Ok(expanded) => expanded,
                 Err(error) => {
@@ -1435,7 +1435,7 @@ impl Checker {
             self.boundary.expected_schema = previous;
         }
         match crate::sema::arguments::expand_named_arguments(arena, args, |expression| {
-            self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
+            self.expr_types.get_expr(arena, expression).cloned()
         }) {
             Ok(arguments) => {
                 let contexts = arguments.iter().map(|argument| contexts[argument.entry_index].clone()).collect();
@@ -1457,7 +1457,7 @@ impl Checker {
         let super::method::HostCallSource::Expression(call) = source else { return; };
         let crate::syntax::arena::ArenaExprKind::Call { args, .. } = arena.arena.expr_kind(*call) else { panic!("method evidence belongs to its original call") };
         let originals = crate::sema::arguments::expand_named_arguments(arena, arena.arena.call_args(args), |expression| {
-            self.expr_types.get(&arena.arena.expr_span(expression)).cloned()
+            self.expr_types.get_expr(arena, expression).cloned()
         }).expect("checked original method arguments retain their static layout");
         assert_eq!(originals.len(), values.arguments.len());
         for (original, checked) in originals.into_iter().zip(&mut values.arguments) {
