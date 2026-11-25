@@ -2360,14 +2360,7 @@ impl Checker {
             (ty, contains_callable)
         });
         let module_type = if *contains_callable {
-            let source = source_module.scheme_callables.as_ref().expect("imported module has a callable table");
-            match relationships.ty(cached_type, source) {
-                Ok(ty) => ty,
-                Err(error) => {
-                    self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
-                    return;
-                }
-            }
+            module_type_from_user_signature(&module)
         } else {
             cached_type.clone()
         };
