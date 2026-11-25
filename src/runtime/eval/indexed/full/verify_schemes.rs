@@ -5323,9 +5323,9 @@ enum ArgumentAliasCheck {
     Declared(TypeId),
 }
 
-fn checked_argument_type(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_argument_type<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     mut use_instruction: usize,
     mut instruction: usize,
     materialization: &mut SchemeInstantiationBudget,
@@ -5515,9 +5515,9 @@ fn checked_argument_type(
     Ok(Some(actual))
 }
 
-fn checked_record_argument_type(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_record_argument_type<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     instruction: usize,
     expected: &Type,
     materialization: &mut SchemeInstantiationBudget,
@@ -5664,9 +5664,9 @@ fn closed_literal_argument_type(actual: CheckedArgumentType, materialization: &m
     }
 }
 
-fn checked_argument_type_inner(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_argument_type_inner<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     use_instruction: usize,
     instruction: usize,
     materialization: &mut SchemeInstantiationBudget,
@@ -7180,6 +7180,7 @@ pub(super) fn decoder_for_driver_step(
         binding_identity_stack: OnceCell::new(),
         binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
+        decoded_views: super::DecodedViews::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
         producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -7210,6 +7211,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
         binding_identity_stack: OnceCell::new(),
         binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
+        decoded_views: super::DecodedViews::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
         producer_demand: crate::runtime::eval::ProducerDemand::Absent,

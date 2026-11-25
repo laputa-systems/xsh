@@ -676,6 +676,7 @@ macro_rules! instruction_schema {
                 )*
             }
 
+            #[derive(Clone)]
             pub(in crate::runtime::eval) enum $view<'a> {
                 $(
                     $variant
@@ -723,7 +724,7 @@ macro_rules! instruction_schema {
 
                 instruction_decoder_method!($view,
                     pub(in crate::runtime::eval) fn decode_from_decoder<'e>(
-                        decoder: &'e FullDecoder<'_>,
+                        decoder: &FullDecoder<'e>,
                         tag: FullTag,
                         mut payload: FullPayload<'e>,
                     ) -> Result<$view<'e>, IrVerifyError> {
