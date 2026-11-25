@@ -737,8 +737,15 @@ ranges were 8,779,701,587–8,779,745,724 and 4,341,460,277–4,341,617,745.
 
 Debugger counters on `xsht check core/lib/awk.xsh` observed six program checks
 and 2,310 function-check entries at base, versus two and 770 for the candidate.
-The transfer closure advances stream origins between probes and checks the
-result in a confirming pass; it falls back to whole-module replay when the
-recorded transfers cannot reproduce the checked pass. Each probe still checks
-the whole module. Preserving per-function facts and selectively rechecking
-callers remains open.
+The transfer closure advances stream origins between probes. Since
+`8d613d1a7` the checked pass closes the transfers itself whenever effects are
+settled, including when a widened loop header read no other declaration's
+provisional summary, and on a fixpoint resolves every expression and
+statement origin against the closed summaries in one sweep, so no confirming
+round runs. Every origin-dependent decision in a recording pass either ignores
+unresolved transfer parts or rejects the closure, so a fixpoint means the
+first round already made the decisions a second would. The old rounds remain
+when the closure reaches no fixpoint, an origin does not resolve, or the pass
+reported a diagnostic. On Laputa's `pm --help` this removed the second round
+from 5 of 36 module checks: 3.49G to 3.13G instructions (-10.3%), with
+byte-identical diagnostics over 1,574 corpus files.
