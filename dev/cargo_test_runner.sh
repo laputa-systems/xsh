@@ -40,7 +40,7 @@ fi
 
 unset XSH_CARGO_TEST_LOCK_FILE
 unset CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUNNER CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER
-if ! flock -u "$lock_fd"; then
+if ! python3 "$(dirname "$0")/unlock_cargo_lock.py" "$lock_fd"; then
   printf '%s\n' 'cargo test runner: failed to release the inherited Cargo lock' >&2
   exit 125
 fi
