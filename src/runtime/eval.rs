@@ -892,6 +892,15 @@ struct BuildScratch {
     bools: Vec<BuildBoolRow>,
     bool_spans: Vec<Option<Span>>,
     top_statements: Vec<BuildTopStmtRow>,
+    read_type_facts: FxHashMap<usize, (Type, ReadTypeFacts)>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReadTypeFacts {
+    inference: bool,
+    recovery: bool,
+    any: bool,
+    canonical: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

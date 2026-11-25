@@ -386,11 +386,11 @@ pub(super) fn prepare_tables(store: &FullStore) -> Result<VerifiedSchemeScopes, 
     Ok(VerifiedSchemeScopes { scopes, invocations, constructor_parameters })
 }
 
-pub(super) fn verify(store: &FullStore, producer_index: &GroundProducerIndex, contexts: producers::ProducerContexts<'_>, function_signatures: &Arc<super::FunctionSignatureIndex>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
+pub(super) fn verify<'a>(store: &'a FullStore, producer_index: &'a GroundProducerIndex, contexts: producers::ProducerContexts<'a>, function_signatures: &Arc<super::FunctionSignatureIndex>, tables: &'a super::VerificationTables<'a>) -> Result<Vec<(u32, super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
     let scopes = &producer_index.scheme_scopes(store)?.scopes;
     scheme_values::verify_relationships(store, scopes)?;
     let mut requests = verify_scheme_body_facts(store, scopes, producer_index, function_signatures)?;
-    let mut proof = producers::ProducerProof::new(store, producer_index, contexts, std::mem::take(&mut requests.applications));
+    let mut proof = producers::ProducerProof::new(store, producer_index, contexts, std::mem::take(&mut requests.applications), Some(tables));
     verify_call_instantiations(store, scopes, &mut requests, function_signatures, &mut proof)?;
     producers::verify(proof, requests)
 }

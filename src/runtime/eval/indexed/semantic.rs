@@ -86,6 +86,36 @@ impl TypeMaterializationBudget {
     }
 }
 
+pub(super) struct MaterializedTypes<'a> {
+    pools: &'a SemanticPools,
+    types: Box<[std::cell::OnceCell<(std::sync::Arc<Type>, usize)>]>,
+}
+
+impl<'a> MaterializedTypes<'a> {
+    pub(super) fn new(pools: &'a SemanticPools) -> Self {
+        Self { pools, types: std::iter::repeat_with(std::cell::OnceCell::new).take(pools.type_tags.len()).collect() }
+    }
+
+    pub(super) fn to_type(&self, id: TypeId) -> Result<std::sync::Arc<Type>, IrVerifyError> {
+        self.to_type_with_budget(id, &mut TypeMaterializationBudget::default())
+    }
+
+    pub(super) fn to_type_with_budget(&self, id: TypeId, budget: &mut TypeMaterializationBudget) -> Result<std::sync::Arc<Type>, IrVerifyError> {
+        let cell = self.types.get(id.index());
+        if let Some((ty, work)) = cell.and_then(std::cell::OnceCell::get)
+            && let Some(expanded) = budget.expanded_nodes.checked_add(*work).filter(|expanded| *expanded <= budget.limit)
+        {
+            budget.expanded_nodes = expanded;
+            return Ok(std::sync::Arc::clone(ty));
+        }
+        let start = budget.expanded_nodes;
+        let ty = std::sync::Arc::new(self.pools.to_type_with_budget(id, budget)?);
+        let Some(cell) = cell else { return Ok(ty) };
+        let work = budget.expanded_nodes - start;
+        Ok(std::sync::Arc::clone(&cell.get_or_init(|| (ty, work)).0))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
 pub(super) enum TypeTag {

@@ -75,6 +75,17 @@ enum PhysicalReadContract<'a> {
     OptionalPayload(&'a Type),
 }
 
+enum LoweredContract {
+    Storage(Type),
+    Checked(Type),
+}
+
+impl LoweredContract {
+    fn into_type(self) -> Type {
+        match self { Self::Storage(ty) | Self::Checked(ty) => ty }
+    }
+}
+
 pub(super) fn only_optional_read_narrowing(stored: &Type, checked: &Type) -> bool {
     if stored == checked { return true; }
     match (stored, checked) {
@@ -835,6 +846,7 @@ pub(super) fn lower_compact_function_units_into(
 fn clear_function_scratch(scratch: &mut BuildScratch) {
     let BuildScratch {
         producer_demand: _,
+        read_type_facts: _,
         prepared_schemas,
         prepared_constants,
         expressions,
@@ -8250,11 +8262,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let lowered = self.lower_expr(id, slots, current_function, item_slot)?;
         let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Needed
-            && let Some(ty) = self.lowered_expression_contract(id, lowered, slots)
-            && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery())
-            && !self.scratch.borrow_mut().record_producer_context(lowered, self.canonicalize_checked_type(ty))
+            && let Some(ty) = self.concrete_lowered_expression_contract(id, lowered, slots)
         {
-            return None;
+            let ty = self.canonical_read_type(ty);
+            if !self.scratch.borrow_mut().record_producer_context(lowered, ty) { return None; }
         }
         Some(lowered)
     }
@@ -8292,8 +8303,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             BuildExprRow::ResultFallback { left, .. } => Some(*left),
             _ => None,
         };
-        if let Some(input) = input && let Some(ty) = self.lowered_expression_contract(source, input, slots) && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()) {
-            let ty = self.canonicalize_checked_type(ty);
+        if let Some(input) = input && let Some(ty) = self.concrete_lowered_expression_contract(source, input, slots) {
+            let ty = self.canonical_read_type(ty);
             if !self.scratch.borrow_mut().record_producer_context(input, ty) { return None; }
         }
         Some(())
@@ -8318,8 +8329,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn storage_read_contract<'t>(&self, id: ExprId, slots: &'t SlotScope) -> Option<PhysicalReadContract<'t>> {
         if !matches!(self.program.arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) { return None; }
         let stored = self.stored_expression_type(id, slots)?;
-        let checked = self.canonicalize_checked_type(self.bodies.expr_types.get(&id)?.clone());
-        if checked == Type::Any || checked.contains_inference() || checked.contains_recovery() { return None; }
+        let checked = self.canonical_read_type(self.bodies.expr_types.get(&id)?.clone());
+        if checked == Type::Any || self.read_type_has_inference_or_recovery(&checked) { return None; }
         if let Type::Optional(payload) = stored
             && payload.as_ref() == &checked
         {
@@ -8327,31 +8338,80 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 && !payload.contains_any() && !payload.contains_inference() && !payload.contains_recovery()
             { PhysicalReadContract::Stored(stored) } else { PhysicalReadContract::OptionalPayload(payload) });
         }
-        if stored.contains_inference() || stored.contains_recovery() || stored.contains_any()
-            || !only_optional_read_narrowing(stored, &checked)
-        { return None; }
+        let checked_storage = *stored == checked;
+        if !checked_storage && self.read_type_has_inference_or_recovery(stored) { return None; }
+        if self.read_type_has_any(stored) || !(checked_storage || only_optional_read_narrowing(stored, &checked)) { return None; }
         Some(PhysicalReadContract::Stored(stored))
     }
 
+    fn read_type_has_inference_or_recovery(&self, ty: &Type) -> bool {
+        match self.shared_read_type_facts(ty) {
+            Some(facts) => facts.inference || facts.recovery,
+            None => ty.contains_inference() || ty.contains_recovery(),
+        }
+    }
+
+    fn read_type_has_any(&self, ty: &Type) -> bool {
+        match self.shared_read_type_facts(ty) {
+            Some(facts) => facts.any,
+            None => ty.contains_any(),
+        }
+    }
+
+    fn shared_read_type_facts(&self, ty: &Type) -> Option<super::ReadTypeFacts> {
+        let identity = match ty {
+            Type::Record(fields) => Arc::as_ptr(fields).cast::<()>() as usize,
+            Type::Module(module) => Arc::as_ptr(module).cast::<()>() as usize,
+            _ => return None,
+        };
+        if let Some((_, facts)) = self.scratch.borrow().read_type_facts.get(&identity) { return Some(*facts); }
+        let facts = super::ReadTypeFacts { inference: ty.contains_inference(), recovery: ty.contains_recovery(), any: ty.contains_any(), canonical: !Self::type_needs_canonicalization(ty) };
+        self.scratch.borrow_mut().read_type_facts.insert(identity, (ty.clone(), facts));
+        Some(facts)
+    }
+
+    fn canonical_read_type(&self, ty: Type) -> Type {
+        if self.shared_read_type_facts(&ty).is_some_and(|facts| facts.canonical) { return ty; }
+        self.canonicalize_checked_type(ty)
+    }
+
     fn lowered_expression_contract(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<Type> {
-        if let Some(contract) = self.storage_read_contract(id, slots) {
+        self.lowered_expression_contract_source(id, lowered, slots).map(LoweredContract::into_type)
+    }
+
+    fn concrete_lowered_expression_contract(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<Type> {
+        match self.lowered_expression_contract_source(id, lowered, slots)? {
+            LoweredContract::Storage(ty) => Some(ty),
+            LoweredContract::Checked(ty) => (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()).then_some(ty),
+        }
+    }
+
+    fn lowered_expression_contract_source(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<LoweredContract> {
+        let storage_selects_contract = match self.scratch.borrow().expressions.get(lowered.index()) {
+            None | Some(BuildExprRow::CheckedValue { .. }) => true,
+            Some(BuildExprRow::Param(slot)) => self.source_slot(id, slots) == Some(*slot),
+            Some(BuildExprRow::Field { name, .. }) => matches!(self.program.arena.expr_kind(id), ArenaExprKind::Field { name: source, .. } if source.as_str() == *name),
+            Some(_) => false,
+        };
+        if storage_selects_contract && let Some(contract) = self.storage_read_contract(id, slots) {
             let scratch = self.scratch.borrow();
             match (contract, scratch.expressions.get(lowered.index())?) {
-                (PhysicalReadContract::Stored(stored), BuildExprRow::Param(slot)) if self.source_slot(id, slots) == Some(*slot) => return Some(stored.clone()),
-                (PhysicalReadContract::Stored(stored), BuildExprRow::Field { name, .. })
-                    if matches!(self.program.arena.expr_kind(id), ArenaExprKind::Field { name: source, .. } if source.as_str() == *name) => return Some(stored.clone()),
+                (PhysicalReadContract::Stored(stored), BuildExprRow::Param(_) | BuildExprRow::Field { .. }) => return Some(LoweredContract::Storage(stored.clone())),
                 (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
-                    LoweredValueCheck::Ground(check) => Some(check.ty.clone()),
-                    LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type(),
+                    LoweredValueCheck::Ground(check) => Some(LoweredContract::Checked(check.ty.clone())),
+                    LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type().map(LoweredContract::Checked),
                     LoweredValueCheck::RecordConstructor(_) | LoweredValueCheck::MembershipKey(_) | LoweredValueCheck::MapKey(_) | LoweredValueCheck::FatalUIntKey => None,
                 },
                 _ => {}
             }
         }
-        self.bodies.expr_types.get(&id).cloned()
+        self.bodies.expr_types.get(&id).cloned().map(LoweredContract::Checked)
     }
 
     fn narrowed_optional_payload_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
+        if !matches!(self.program.arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+            || !matches!(self.stored_expression_type(id, slots)?, Type::Optional(_))
+        { return None; }
         let PhysicalReadContract::OptionalPayload(payload) = self.storage_read_contract(id, slots)? else { return None };
         let ty = self.canonicalize_checked_type(payload.clone());
         Some(LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None })
@@ -9755,6 +9815,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .collect::<BTreeMap<_, _>>()
                     .into(),
             ),
+            Type::Module(module) if !module.values().any(Self::module_export_needs_canonicalization) => Type::Module(module),
             Type::Module(module) => Type::Module(Arc::new(crate::sema::types::ModuleType {
                 exports: module
                     .exports
@@ -9790,6 +9851,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .map(|member| self.canonicalize_checked_type(member))
                     .collect(),
             ),
+            Type::Callable(signature)
+                if !signature.sig.params.iter().any(|parameter| Self::type_needs_canonicalization(&parameter.ty))
+                    && !Self::type_needs_canonicalization(&signature.sig.return_ty) => Type::Callable(signature),
             Type::Callable(signature) => {
                 let mut callable = (*signature).clone();
                 callable.sig = self.canonicalize_checked_callable(callable.sig);
@@ -9803,6 +9867,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .expect("canonicalized validated type keeps its base shape"),
             )),
             other => other,
+        }
+    }
+
+    fn module_export_needs_canonicalization(export: &ModuleExportType) -> bool {
+        match export {
+            ModuleExportType::Value { ty, .. } => Self::type_needs_canonicalization(ty),
+            ModuleExportType::Callable { sig, .. } => sig.params.iter().any(|parameter| Self::type_needs_canonicalization(&parameter.ty))
+                || Self::type_needs_canonicalization(&sig.return_ty),
+            ModuleExportType::GenericCallable { .. } => false,
         }
     }
 

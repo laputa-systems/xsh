@@ -244,7 +244,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                     }
                     _ => unreachable!(),
                 };
-                match script_implementation_rule(decoder.store, target)? {
+                match decoder_script_implementation_rule(decoder, target)? {
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => require(instruction, None, false, &mut captured)?,
                     None => {
@@ -384,9 +384,7 @@ fn verify_uint_index_return_contract(decoder: &FullDecoder<'_>, index: usize) ->
     if matches!(decoder.store.functions.get(index).ok_or_else(|| IrVerifyError::new("UInt index return owner is out of bounds"))?.contract, FullCallableContract::Scheme(_)) {
         return Ok(());
     }
-    let mut materialization = super::super::semantic::TypeMaterializationBudget::default();
-    let returned_id = decoder.function_return_type(index)?;
-    let returned = decoder.store.semantic.to_type_with_budget(returned_id, &mut materialization)?;
+    let returned = decoder.semantic_type(decoder.function_return_type(index)?)?;
     let Some(error) = crate::sema::sealed_operation::result_error_contract(&returned) else { return Ok(()); };
     if Type::Error.matches_expected(error) { return Ok(()); }
     let mut captures = BTreeMap::new();
@@ -429,6 +427,15 @@ fn verify_script_implementation(store: &FullStore, index: usize, owner: &OwnerEf
         return Err(IrVerifyError::new("script implementation effects exceed its registry contract"));
     }
     Ok(())
+}
+
+fn decoder_script_implementation_rule(decoder: &FullDecoder<'_>, index: usize) -> Result<Option<NativeEffectRule>, IrVerifyError> {
+    let Some(cell) = decoder.decoded_views.tables.and_then(|tables| tables.script_effect_rules.get(index)) else {
+        return script_implementation_rule(decoder.store, index);
+    };
+    if let Some(rule) = cell.get() { return Ok(*rule); }
+    let rule = script_implementation_rule(decoder.store, index)?;
+    Ok(*cell.get_or_init(|| rule))
 }
 
 fn script_implementation_rule(store: &FullStore, index: usize) -> Result<Option<NativeEffectRule>, IrVerifyError> {
