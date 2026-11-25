@@ -33,14 +33,81 @@ impl FactSlots {
 
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TypeId(u32);
+
+#[derive(Clone, Copy, Debug)]
+struct TypeFlags {
+    inference: bool,
+    recovery: bool,
+    any: bool,
+    scheme_callable: bool,
+    deep: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TypeTable {
+    entries: Vec<(super::Type, TypeFlags)>,
+    by_hash: FxHashMap<u64, Vec<TypeId>>,
+}
+
+impl TypeTable {
+    fn get(&self, id: TypeId) -> &super::Type { &self.entries[id.0 as usize].0 }
+
+    fn flags(&self, id: TypeId) -> TypeFlags { self.entries[id.0 as usize].1 }
+
+    fn intern(&mut self, ty: super::Type) -> TypeId {
+        use std::hash::{Hash, Hasher};
+        fn inspect(ty: &super::Type, depth: usize, flags: &mut TypeFlags) {
+            use super::Type;
+            flags.deep |= depth > 100;
+            flags.inference |= matches!(ty, Type::Inference(_));
+            flags.recovery |= matches!(ty, Type::Unknown | Type::Invalid);
+            flags.any |= matches!(ty, Type::Any);
+            flags.scheme_callable |= matches!(ty, Type::SchemeCallable(_));
+            match ty {
+                Type::Callable(callable) => flags.inference |= callable.sig.effects.has_inference(),
+                Type::Module(module) => for export in module.values() {
+                    if let crate::sema::types::ModuleExportType::Callable { sig, .. } = export {
+                        flags.inference |= sig.effects.has_inference();
+                    }
+                },
+                _ => {}
+            }
+            ty.for_each_child(|child| inspect(child, depth + 1, flags));
+        }
+        let mut hasher = rustc_hash::FxHasher::default();
+        std::mem::discriminant(&ty).hash(&mut hasher);
+        match &ty {
+            super::Type::Inference(id) => id.hash(&mut hasher),
+            super::Type::SchemeCallable(id) => id.hash(&mut hasher),
+            super::Type::Function(kind) => kind.hash(&mut hasher),
+            super::Type::ErrorFamily(name) | super::Type::ErrorFacet(name) | super::Type::Tag(name) => name.hash(&mut hasher),
+            super::Type::ErrorVariant { family, variant } => { family.hash(&mut hasher); variant.hash(&mut hasher); }
+            super::Type::Record(fields) => for name in fields.keys() { name.hash(&mut hasher); },
+            _ => {}
+        }
+        ty.for_each_child(|child| std::mem::discriminant(child).hash(&mut hasher));
+        let hash = hasher.finish();
+        if let Some(id) = self.by_hash.get(&hash).and_then(|ids| ids.iter().copied().find(|&id| self.get(id) == &ty)) { return id; }
+        let mut flags = TypeFlags { inference: false, recovery: false, any: false, scheme_callable: false, deep: false };
+        inspect(&ty, 0, &mut flags);
+        let id = TypeId(u32::try_from(self.entries.len()).expect("type table overflow"));
+        self.entries.push((ty, flags));
+        self.by_hash.entry(hash).or_default().push(id);
+        id
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct ExpressionTypes {
     slots: std::sync::Arc<FactSlots>,
-    values: Vec<Option<super::Type>>,
+    values: Vec<Option<TypeId>>,
+    types: TypeTable,
     first_slot: usize,
     touched: Vec<u64>,
     active: Vec<u32>,
-    other: std::collections::BTreeMap<Span, super::Type>,
+    other: std::collections::BTreeMap<Span, TypeId>,
 }
 
 impl ExpressionTypes {
@@ -53,7 +120,7 @@ impl ExpressionTypes {
     pub(super) fn get(&self, span: &Span) -> Option<&super::Type> {
         match self.slots.for_span(span) {
             Some(slot) => self.value(slot),
-            None => self.other.get(span),
+            None => self.other.get(span).map(|&id| self.types.get(id)),
         }
     }
 
@@ -63,10 +130,10 @@ impl ExpressionTypes {
     }
 
     fn value(&self, slot: usize) -> Option<&super::Type> {
-        slot.checked_sub(self.first_slot).and_then(|index| self.values.get(index)).and_then(Option::as_ref)
+        slot.checked_sub(self.first_slot).and_then(|index| self.values.get(index)).and_then(|value| value.map(|id| self.types.get(id)))
     }
 
-    fn insert_slot(&mut self, slot: usize, ty: super::Type) -> Option<super::Type> {
+    fn insert_slot(&mut self, slot: usize, ty: super::Type) {
         if self.values.is_empty() {
             self.first_slot = slot;
         } else if slot < self.first_slot {
@@ -85,25 +152,26 @@ impl ExpressionTypes {
             self.touched[word] |= bit;
             self.active.push(u32::try_from(slot).expect("expression fact slot overflow"));
         }
-        self.values[index].replace(ty)
+        let id = self.types.intern(ty);
+        self.values[index] = Some(id);
     }
 
-    pub(super) fn insert_expr(&mut self, program: &ArenaProgram, id: ExprId, ty: super::Type) -> Option<super::Type> {
-        if self.slots.by_expr.is_empty() { return self.insert(program.arena.expr_span(id), ty); }
-        self.insert_slot(self.slots.for_expr(id), ty)
+    pub(super) fn insert_expr(&mut self, program: &ArenaProgram, id: ExprId, ty: super::Type) {
+        if self.slots.by_expr.is_empty() { self.insert(program.arena.expr_span(id), ty); return; }
+        self.insert_slot(self.slots.for_expr(id), ty);
     }
 
-    pub(super) fn insert(&mut self, span: Span, ty: super::Type) -> Option<super::Type> {
+    pub(super) fn insert(&mut self, span: Span, ty: super::Type) {
         match self.slots.for_span(&span) {
             Some(slot) => self.insert_slot(slot, ty),
-            None => self.other.insert(span, ty),
+            None => { let id = self.types.intern(ty); self.other.insert(span, id); },
         }
     }
 
-    pub(super) fn remove(&mut self, span: &Span) -> Option<super::Type> {
+    pub(super) fn remove(&mut self, span: &Span) {
         match self.slots.for_span(span) {
-            Some(slot) => slot.checked_sub(self.first_slot).and_then(|index| self.values.get_mut(index)).and_then(Option::take),
-            None => self.other.remove(span),
+            Some(slot) => { if let Some(value) = slot.checked_sub(self.first_slot).and_then(|index| self.values.get_mut(index)) { *value = None; } },
+            None => { self.other.remove(span); },
         }
     }
 
@@ -111,42 +179,50 @@ impl ExpressionTypes {
         let mut pairs: Vec<_> = self.active.iter().filter_map(|&slot| {
             let index = slot as usize;
             self.value(index).map(|value| (&self.slots.spans[index], value))
-        }).chain(self.other.iter()).collect();
+        }).chain(self.other.iter().map(|(span, &id)| (span, self.types.get(id)))).collect();
         pairs.sort_unstable_by_key(|(span, _)| **span);
         pairs.into_iter()
     }
 
-    pub(super) fn for_each_sorted_mut(&mut self, mut visit: impl FnMut(&Span, &mut super::Type)) {
+    pub(super) fn for_each_sorted_inference_mut(&mut self, mut visit: impl FnMut(&Span, &mut super::Type)) {
         let mut order: Vec<_> = self.active.iter().filter_map(|&slot| {
             let index = slot as usize;
             self.value(index).map(|_| (self.slots.spans[index], Some(index)))
         }).chain(self.other.keys().map(|&span| (span, None))).collect();
         order.sort_unstable_by_key(|(span, _)| *span);
         for (span, slot) in order {
-            let value = match slot {
-                Some(slot) => self.values[slot - self.first_slot].as_mut(),
-                None => self.other.get_mut(&span),
+            let id = match slot {
+                Some(slot) => self.values[slot - self.first_slot],
+                None => self.other.get(&span).copied(),
             }.expect("sorted expression fact remains present");
-            visit(&span, value);
+            let flags = self.types.flags(id);
+            if !flags.inference && !flags.deep { continue; }
+            let mut ty = self.types.get(id).clone();
+            visit(&span, &mut ty);
+            let replacement = self.types.intern(ty);
+            match slot {
+                Some(slot) => self.values[slot - self.first_slot] = Some(replacement),
+                None => { self.other.insert(span, replacement); }
+            }
         }
     }
 
-    pub(super) fn retain(&mut self, mut keep: impl FnMut(&Span, &mut super::Type) -> bool) {
+    pub(super) fn retain(&mut self, mut keep: impl FnMut(&Span, &super::Type) -> bool) {
         for &slot in &self.active {
             let index = slot as usize;
             let value = &mut self.values[index - self.first_slot];
-            if value.as_mut().is_some_and(|ty| !keep(&self.slots.spans[index], ty)) { *value = None; }
+            if value.is_some_and(|id| !keep(&self.slots.spans[index], self.types.get(id))) { *value = None; }
         }
-        self.other.retain(keep);
+        self.other.retain(|span, id| keep(span, self.types.get(*id)));
     }
 
-    pub(super) fn into_map(mut self) -> std::collections::BTreeMap<Span, super::Type> {
+    pub(super) fn into_map(self) -> std::collections::BTreeMap<Span, super::Type> {
         let mut pairs = Vec::with_capacity(self.active.len() + self.other.len());
         for slot in self.active {
             let index = slot as usize;
-            if let Some(value) = self.values[index - self.first_slot].take() { pairs.push((self.slots.spans[index], value)); }
+            if let Some(id) = self.values[index - self.first_slot] { pairs.push((self.slots.spans[index], self.types.get(id).clone())); }
         }
-        pairs.extend(self.other);
+        pairs.extend(self.other.into_iter().map(|(span, id)| (span, self.types.get(id).clone())));
         pairs.sort_unstable_by_key(|(span, _)| *span);
         pairs.into_iter().collect()
     }
@@ -219,6 +295,33 @@ mod tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn interned_type_flags_and_distinct_inference_identities() {
+        use super::super::Type;
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let span = Span::new(SourceId::new(0), 1, 2);
+        let first = constraints.fresh(span);
+        let second = constraints.fresh(span);
+        let values = [
+            Type::Int,
+            Type::List(Box::new(Type::Any)),
+            Type::Result(Box::new(first.clone()), Box::new(Type::Invalid)),
+            Type::Result(Box::new(second.clone()), Box::new(Type::Invalid)),
+        ];
+        let mut table = TypeTable::default();
+        let ids: Vec<_> = values.iter().cloned().map(|ty| table.intern(ty)).collect();
+        assert_ne!(ids[2], ids[3]);
+        for (ty, id) in values.into_iter().zip(ids) {
+            let flags = table.flags(id);
+            assert_eq!(table.get(id), &ty);
+            assert_eq!(flags.inference, ty.contains_inference());
+            assert_eq!(flags.recovery, ty.contains_recovery());
+            assert_eq!(flags.any, ty.contains_any());
+            assert_eq!(flags.scheme_callable, ty.contains_scheme_callable());
+            assert_eq!(table.intern(ty), id);
+        }
+    }
+
+    #[test]
     fn fact_storage_preserves_out_of_order_slots() {
         let spans = [Span::new(SourceId::new(0), 1, 2), Span::new(SourceId::new(0), 3, 4), Span::new(SourceId::new(0), 5, 6)];
         let slots = FactSlots {
@@ -281,6 +384,8 @@ impl ExpressionTypes {
 #[cfg(test)]
 impl From<std::collections::BTreeMap<Span, super::Type>> for ExpressionTypes {
     fn from(other: std::collections::BTreeMap<Span, super::Type>) -> Self {
-        Self { other, ..Self::default() }
+        let mut result = Self::default();
+        for (span, ty) in other { result.insert(span, ty); }
+        result
     }
 }
