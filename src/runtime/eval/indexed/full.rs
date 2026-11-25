@@ -2827,12 +2827,13 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(
-        &self,
+    fn verify_driver<'a>(
+        &'a self,
         owned_blocks: &FxHashMap<u32, usize>,
         in_place_marks: &mut [bool],
         function_signature_index: Arc<FunctionSignatureIndex>,
         producer_index: &mut verify_schemes::GroundProducerIndex,
+        tables: &'a VerificationTables<'a>,
     ) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             if !self.store.driver_writers.is_empty() || !self.store.binding_identities.is_empty() {
@@ -2911,6 +2912,7 @@ impl FullProgram {
             in_place_marks,
             &function_signature_index,
             producer_index,
+            tables,
         )?;
         producer_index.set_binding_writers(&identity_writers)?;
         if program_states.iter().any(|state| *state != 2)
@@ -2987,8 +2989,8 @@ impl FullProgram {
         Ok(())
     }
 
-    fn verify_driver_program(
-        &self,
+    fn verify_driver_program<'a>(
+        &'a self,
         raw: u32,
         program_states: &mut [u8],
         step_states: &mut [u8],
@@ -2998,6 +3000,7 @@ impl FullProgram {
         in_place_marks: &mut [bool],
         function_signature_index: &Arc<FunctionSignatureIndex>,
         producer_index: &mut verify_schemes::GroundProducerIndex,
+        tables: &'a VerificationTables<'a>,
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -3049,6 +3052,7 @@ impl FullProgram {
                 &visible_bindings,
                 &registered_module_types,
                 producer_index,
+                tables,
             )?;
             if let Some((namespace, module_type)) = registered_import {
                 use std::collections::hash_map::Entry;
@@ -3085,8 +3089,8 @@ impl FullProgram {
         Ok(())
     }
 
-    fn verify_driver_step(
-        &self,
+    fn verify_driver_step<'a>(
+        &'a self,
         program_index: usize,
         step_index: usize,
         program_states: &mut [u8],
@@ -3100,6 +3104,7 @@ impl FullProgram {
         visible_bindings: &FxHashMap<u32, u32>,
         registered_module_types: &FxHashMap<Name, RegisteredModuleType>,
         producer_index: &mut verify_schemes::GroundProducerIndex,
+        tables: &'a VerificationTables<'a>,
     ) -> Result<Option<(Name, Option<TypeId>)>, IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         if step.tag != FullDriverTag::Use && step.registered_module_type != IR_NONE {
@@ -3110,7 +3115,7 @@ impl FullProgram {
         let instruction_range = self.store.driver_instruction_range(step_index)?;
         let owner =
             driver_owner(step_index).map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
-        let decoder = FullDecoder {
+        let mut decoder = FullDecoder {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
@@ -3134,6 +3139,7 @@ impl FullProgram {
             prepared_constant_work: Cell::new(0),
             verified: false,
         };
+        tables.share(&mut decoder);
         let location_words = [step.location];
         let mut location = FullCursor::new(&location_words);
         Span::verify(&decoder, &mut location)?;
@@ -3247,6 +3253,7 @@ impl FullProgram {
                 in_place_marks,
                 function_signature_index,
                 producer_index,
+                tables,
             )?;
         }
         let mut registered_import = None;
@@ -7511,8 +7518,63 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
 
 #[derive(Default)]
 struct DecodedViews<'a> {
+    tables: Option<&'a VerificationTables<'a>>,
+    owner: Option<&'a OwnerViews<'a>>,
     expressions: RefCell<FxHashMap<usize, schema::ExprView<'a>>>,
     statements: RefCell<FxHashMap<usize, schema::StmtView<'a>>>,
+    returning_statements: RefCell<FxHashMap<usize, bool>>,
+}
+
+struct OwnerViews<'a> {
+    instruction_range: std::ops::Range<usize>,
+    slot_count: u32,
+    expressions: Box<[OnceCell<schema::ExprView<'a>>]>,
+    statements: Box<[OnceCell<schema::StmtView<'a>>]>,
+}
+
+pub(in crate::runtime::eval::indexed::full) struct VerificationTables<'a> {
+    store: &'a FullStore,
+    types: super::semantic::MaterializedTypes<'a>,
+    script_effect_rules: Box<[OnceCell<Option<crate::modules::signature::NativeEffectRule>>]>,
+    functions: Box<[OnceCell<OwnerViews<'a>>]>,
+    drivers: Box<[OnceCell<OwnerViews<'a>>]>,
+}
+
+impl<'a> VerificationTables<'a> {
+    fn new(store: &'a FullStore) -> Self {
+        Self {
+            store,
+            types: super::semantic::MaterializedTypes::new(&store.semantic),
+            script_effect_rules: std::iter::repeat_with(OnceCell::new).take(store.functions.len()).collect(),
+            functions: std::iter::repeat_with(OnceCell::new).take(store.functions.len()).collect(),
+            drivers: std::iter::repeat_with(OnceCell::new).take(store.driver_steps.len()).collect(),
+        }
+    }
+
+    fn share(&'a self, decoder: &mut FullDecoder<'a>) {
+        if !std::ptr::eq(self.store, decoder.store) { return; }
+        decoder.decoded_views.tables = Some(self);
+        decoder.decoded_views.owner = self.owner_views(decoder.owner, &decoder.instruction_range, decoder.slot_count, decoder.verified);
+    }
+
+    fn semantic_type(&self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
+        self.types.to_type(id)
+    }
+
+    fn owner_views(&'a self, owner: u32, instruction_range: &std::ops::Range<usize>, slot_count: u32, verified: bool) -> Option<&'a OwnerViews<'a>> {
+        if verified { return None; }
+        let cell = match driver_owner_index(owner) {
+            Some(step) => self.drivers.get(step)?,
+            None => self.functions.get(IrFunctionId::from_raw(owner)?.index())?,
+        };
+        let views = cell.get_or_init(|| OwnerViews {
+            instruction_range: instruction_range.clone(),
+            slot_count,
+            expressions: std::iter::repeat_with(OnceCell::new).take(instruction_range.len()).collect(),
+            statements: std::iter::repeat_with(OnceCell::new).take(instruction_range.len()).collect(),
+        });
+        (views.instruction_range == *instruction_range && views.slot_count == slot_count).then_some(views)
+    }
 }
 
 enum CheckedBindingWriterType {
@@ -7577,10 +7639,24 @@ fn owned_block_counts(store: &FullStore) -> FxHashMap<u32, usize> {
 }
 
 impl<'a> FullDecoder<'a> {
+    fn semantic_type(&self, id: TypeId) -> Result<Type, IrVerifyError> {
+        match self.decoded_views.tables {
+            Some(tables) => tables.semantic_type(id).map(|ty| Type::clone(&ty)),
+            None => self.store.semantic.to_type(id),
+        }
+    }
+
     fn expression_view(
         &self,
         instruction: usize,
     ) -> Result<schema::ExprView<'a>, IrVerifyError> {
+        if let Some(views) = self.decoded_views.owner
+            && let Some(cell) = instruction.checked_sub(views.instruction_range.start).and_then(|offset| views.expressions.get(offset))
+        {
+            if let Some(view) = cell.get() { return Ok(view.clone()); }
+            let view = self.decode_expression_view(instruction)?;
+            return Ok(cell.get_or_init(|| view).clone());
+        }
         if let Some(view) = self.decoded_views.expressions.borrow().get(&instruction) {
             return Ok(view.clone());
         }
@@ -7636,6 +7712,13 @@ impl<'a> FullDecoder<'a> {
         &self,
         instruction: usize,
     ) -> Result<schema::StmtView<'a>, IrVerifyError> {
+        if let Some(views) = self.decoded_views.owner
+            && let Some(cell) = instruction.checked_sub(views.instruction_range.start).and_then(|offset| views.statements.get(offset))
+        {
+            if let Some(view) = cell.get() { return Ok(view.clone()); }
+            let view = self.decode_statement_view(instruction)?;
+            return Ok(cell.get_or_init(|| view).clone());
+        }
         if let Some(view) = self.decoded_views.statements.borrow().get(&instruction) {
             return Ok(view.clone());
         }
@@ -8015,7 +8098,7 @@ impl<'a> FullDecoder<'a> {
                 // An optional binding can carry a record fact only after its
                 // null-narrowed branch has been checked independently.
                 let actual = self.derive_checked_field_type(callee)?;
-                if actual != self.store.semantic.to_type(signature)? {
+                if actual != self.semantic_type(signature)? {
                     return Err(IrVerifyError::new(reason));
                 }
                 self.store
@@ -8042,7 +8125,7 @@ impl<'a> FullDecoder<'a> {
                     .copied()
                     .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
                     as usize;
-                let expected = self.store.semantic.to_type(signature)?;
+                let expected = self.semantic_type(signature)?;
                 self.immutable_callable_matches_type(callee, slot, &expected)?;
                 return Ok(());
             }
@@ -8136,7 +8219,7 @@ impl<'a> FullDecoder<'a> {
                 else {
                     return Err(IrVerifyError::new(format!(
                         "typed callee field `{field}` is absent from checked receiver type {:?}",
-                        self.store.semantic.to_type(ty)?
+                        self.semantic_type(ty)?
                     )));
                 };
                 ty = field_type;
@@ -8214,7 +8297,7 @@ impl<'a> FullDecoder<'a> {
         if driver_owner_index(self.owner).is_some()
             && self.is_temporary_slot(slot, &mut |_| Ok(()))?
             && let Some(fact) = fact
-            && !checked_type_contains_typed_callable(&self.store.semantic.to_type(fact)?)
+            && !checked_type_contains_typed_callable(&self.semantic_type(fact)?)
         {
             return Ok(None);
         }
@@ -8278,7 +8361,7 @@ impl<'a> FullDecoder<'a> {
                     .get(capture.binding_identity as usize)
                     .ok_or_else(|| IrVerifyError::new("capture binding identity is invalid"))?;
                 if identity.flags & 1 != 0 {
-                    let capture_type = self.store.semantic.to_type(capture.type_id)?;
+                    let capture_type = self.semantic_type(capture.type_id)?;
                     if self.store.string(identity.name)? == "args"
                         && identity.owner == IR_NONE
                         && matches!(
@@ -8297,8 +8380,8 @@ impl<'a> FullDecoder<'a> {
                 )? else {
                     return Ok(None);
                 };
-                let actual_type = self.store.semantic.to_type(actual_type_id)?;
-                let capture_type = self.store.semantic.to_type(capture.type_id)?;
+                let actual_type = self.semantic_type(actual_type_id)?;
+                let capture_type = self.semantic_type(capture.type_id)?;
                 if lowered_type_from_type(&actual_type)?
                     != lowered_type_from_type(&capture_type)?
                     || (capture_type != actual_type
@@ -8356,7 +8439,7 @@ impl<'a> FullDecoder<'a> {
             return Ok(None);
         }
         if binding.flags & DRIVER_SLOT_TEMPORARY != 0 {
-            self.store.semantic.to_type(binding.type_id)?;
+            self.semantic_type(binding.type_id)?;
             return Ok(Some(binding.type_id));
         }
         if binding.flags & DRIVER_SLOT_MUTABLE != 0 || binding.binding_identity == IR_NONE {
@@ -8368,7 +8451,7 @@ impl<'a> FullDecoder<'a> {
             .get(binding.binding_identity as usize)
             .ok_or_else(|| IrVerifyError::new("driver slot binding identity is invalid"))?;
         if identity.flags & 1 != 0 {
-            let actual_type = self.store.semantic.to_type(binding.type_id)?;
+            let actual_type = self.semantic_type(binding.type_id)?;
             if self.store.string(identity.name)? == "args"
                 && identity.owner == IR_NONE
                 && matches!(
@@ -8444,7 +8527,7 @@ impl<'a> FullDecoder<'a> {
                         if actual != links[1].1 {
                             return Err(IrVerifyError::new("driver slot type differs from its defining binding writer"));
                         }
-                        (self.store.semantic.to_type(links[0].1)? == self.store.semantic.to_type(actual)?)
+                        (self.semantic_type(links[0].1)? == self.semantic_type(actual)?)
                             .then_some(links[0].1)
                     }
                     None => None,
@@ -8560,7 +8643,7 @@ impl<'a> FullDecoder<'a> {
                     FullCodec::decode(&decoder, &mut payload)?;
                 let annotation: Option<Type> = FullCodec::decode(&decoder, &mut payload)?;
                 if let Some(annotation) = annotation.as_ref() {
-                    let checked_type = self.store.semantic.to_type(expected_type_id)?;
+                    let checked_type = self.semantic_type(expected_type_id)?;
                     verify_driver_annotation(
                         annotation,
                         ty,
@@ -8613,7 +8696,7 @@ impl<'a> FullDecoder<'a> {
                 let Some(actual_type) = actual_type else {
                     return Ok(CheckedBindingWriterType::Resolved(None));
                 };
-                if self.store.semantic.to_type(expected_type_id)? == actual_type {
+                if self.semantic_type(expected_type_id)? == actual_type {
                     Ok(CheckedBindingWriterType::Resolved(Some(expected_type_id)))
                 } else {
                     Ok(CheckedBindingWriterType::Resolved(None))
@@ -8664,7 +8747,7 @@ impl<'a> FullDecoder<'a> {
         else {
             return Ok(None);
         };
-        if self.store.semantic.to_type(slot.type_id)? == actual_type {
+        if self.semantic_type(slot.type_id)? == actual_type {
             Ok(Some(slot.type_id))
         } else {
             Ok(None)
@@ -9512,7 +9595,7 @@ impl<'a> FullDecoder<'a> {
             if binding.flags & (DRIVER_SLOT_TEMPORARY | DRIVER_SLOT_DEFINITION) != 0 {
                 continue;
             }
-            let checked_type = self.store.semantic.to_type(binding.type_id)?;
+            let checked_type = self.semantic_type(binding.type_id)?;
             let Type::Module(module) = &checked_type else {
                 continue;
             };
@@ -9536,7 +9619,7 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
             };
-            if self.store.semantic.to_type(registered)? != checked_type || !module.exact {
+            if self.semantic_type(registered)? != checked_type || !module.exact {
                 return Err(IrVerifyError::new(
                     "driver module slot differs from its registered import result",
                 ));
@@ -9553,7 +9636,7 @@ impl<'a> FullDecoder<'a> {
         child: u32,
         identity_writers: &[Option<(usize, usize, u32)>],
     ) -> Result<(), IrVerifyError> {
-        let Type::Module(module) = self.store.semantic.to_type(module_type_id)? else {
+        let Type::Module(module) = self.semantic_type(module_type_id)? else {
             return Err(IrVerifyError::new(
                 "registered import result is not a module type",
             ));
@@ -9909,7 +9992,7 @@ impl<'a> FullDecoder<'a> {
             .filter(|slot| slot.flags & DRIVER_SLOT_TEMPORARY != 0)
         {
             let writes = writers.get(&(slot.slot as usize));
-            let expected = self.store.semantic.to_type(slot.type_id)?;
+            let expected = self.semantic_type(slot.type_id)?;
             if !checked_type_contains_typed_callable(&expected) {
                 continue;
             }
@@ -9946,7 +10029,7 @@ impl<'a> FullDecoder<'a> {
                             "temporary module receiver has no checked source type",
                         )
                     })?;
-                if self.store.semantic.to_type(actual)? == expected {
+                if self.semantic_type(actual)? == expected {
                     Ok(())
                 } else {
                     Err(IrVerifyError::new(
@@ -10130,7 +10213,7 @@ impl<'a> FullDecoder<'a> {
         let Some(type_id) = self.expression_checked_type_id(instruction)? else {
             return Ok(false);
         };
-        Ok(self.store.semantic.to_type(type_id)?.is_result_unit())
+        Ok(self.semantic_type(type_id)?.is_result_unit())
     }
 
     fn expression_has_checked_result(&self, instruction: usize) -> Result<bool, IrVerifyError> {
@@ -10758,7 +10841,7 @@ impl<'a> FullDecoder<'a> {
     ) -> Result<(), IrVerifyError> {
         let actual_type = self
             .expression_checked_type_id(instruction)?
-            .map(|type_id| self.store.semantic.to_type(type_id))
+            .map(|type_id| self.semantic_type(type_id))
             .transpose()?;
         if let Some(actual) = &actual_type {
             let mut charge = |amount| match &self.producer_prefix {
@@ -10791,10 +10874,10 @@ impl<'a> FullDecoder<'a> {
         }
         if let schema::ExprView::Param(slot) = self.expression_view(instruction)? {
             let actual = if let Some(actual) = self.checked_expression_type_id(instruction)? {
-                Some(self.store.semantic.to_type(actual)?)
+                Some(self.semantic_type(actual)?)
             } else {
                 match self.checked_slot_type(slot) {
-                    Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
+                    Ok(Some(actual)) => Some(self.semantic_type(actual)?),
                     // Lowered immutable locals may lack a slot type fact even
                     // though their initializer has a structurally derivable type.
                     Ok(None) => self.derive_checked_expression_type(instruction)?,
@@ -10832,7 +10915,7 @@ impl<'a> FullDecoder<'a> {
             ));
         }
         if let Some(actual) = self.expression_checked_type_id(instruction)? {
-            let actual_type = self.store.semantic.to_type(actual)?;
+            let actual_type = self.semantic_type(actual)?;
             if actual_type == *expected || self.checked_type_fits(&actual_type, expected) {
                 return Ok(());
             }
@@ -10856,7 +10939,7 @@ impl<'a> FullDecoder<'a> {
                     && self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
                 { return self.function_reference_matches_callable(instruction, expected); }
                 let actual = match self.checked_slot_type(slot) {
-                    Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
+                    Ok(Some(actual)) => Some(self.semantic_type(actual)?),
                     Ok(None) => None,
                     Err(error)
                         if error
@@ -10995,7 +11078,7 @@ impl<'a> FullDecoder<'a> {
                         "checked try producer is missing its result type",
                     ));
                 };
-                let actual = self.store.semantic.to_type(actual)?;
+                let actual = self.semantic_type(actual)?;
                 let ok = match actual {
                     Type::Result(ok, _) => *ok,
                     Type::Validated(validated) => match validated.base() {
@@ -11051,7 +11134,7 @@ impl<'a> FullDecoder<'a> {
                                 ));
                             };
                             let Type::Record(source_fields) =
-                                self.store.semantic.to_type(source_type)?
+                                self.semantic_type(source_type)?
                             else {
                                 return Err(IrVerifyError::new(
                                     "checked callable record spread has no field facts",
@@ -11478,7 +11561,7 @@ impl<'a> FullDecoder<'a> {
                         let schema = self.store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("prepared tag producer has no declared variant layout"))?;
                         if value.fields.len() != schema.fields.len() { return Err(IrVerifyError::new("prepared tag producer disagrees with its declared field count")); }
                         for (index, (value, field)) in value.fields.iter().zip(&schema.fields).enumerate() {
-                            pending.push(Task::Value(value, Arc::new(self.store.semantic.to_type(field.type_id)?), evidence.tag_field(index)));
+                            pending.push(Task::Value(value, Arc::new(self.semantic_type(field.type_id)?), evidence.tag_field(index)));
                         }
                     }
                     _ => return Err(IrVerifyError::new("prepared producer value disagrees with its checked contract")),
@@ -11528,7 +11611,7 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_index_result_type(&self, base: usize, index: Option<usize>) -> Result<Type, IrVerifyError> {
         let base_type = match self.expression_checked_type_id(base)? {
-            Some(base_type) => self.store.semantic.to_type(base_type)?,
+            Some(base_type) => self.semantic_type(base_type)?,
             None => self.derive_checked_expression_type(base)?.ok_or_else(|| {
                 IrVerifyError::new("callable index producer is missing its checked base type")
             })?,
@@ -12233,7 +12316,7 @@ impl<'a> FullDecoder<'a> {
                     }
                 }
                 if let Some(type_id) = self.checked_slot_type(slot)? {
-                    return self.store.semantic.to_type(type_id).map(Some);
+                    return self.semantic_type(type_id).map(Some);
                 }
                 if let Some(owner) = driver_owner_index(self.owner) {
                     let step = self.store.driver_steps.get(owner).ok_or_else(|| {
@@ -12749,7 +12832,7 @@ impl<'a> FullDecoder<'a> {
         stream_read: &mut dyn FnMut(usize, usize, &Type) -> Result<bool, IrVerifyError>,
     ) -> Result<(), IrVerifyError> {
         let constant_budget = RefCell::new(constant_budget);
-        let ty = self.store.semantic.to_type(fact.type_id)?;
+        let ty = self.semantic_type(fact.type_id)?;
         let view = self.expression_view(instruction)?;
         let generic_call_result = match &view {
             schema::ExprView::Call { function, .. }
@@ -12802,7 +12885,7 @@ impl<'a> FullDecoder<'a> {
             ));
         }
         let exact_type = |actual: TypeId| -> Result<(), IrVerifyError> {
-            if self.store.semantic.to_type(actual)? == ty {
+            if self.semantic_type(actual)? == ty {
                 Ok(())
             } else {
                 Err(IrVerifyError::new(
@@ -12812,7 +12895,7 @@ impl<'a> FullDecoder<'a> {
         };
         let require_child = |child: usize, expected: &Type| {
             if expected.contains_scheme_callable() && let Some(actual) = self.expression_checked_type_id(child)? {
-                let actual = self.store.semantic.to_type(actual)?;
+                let actual = self.semantic_type(actual)?;
                 let mut budget = constant_budget.borrow_mut();
                 let budget = budget.get_or_insert_with(|| verify_schemes::SchemeInstantiationBudget::for_prepared_constants(self.store, self.prepared_constant_work.get()));
                 if scheme_values::relationship_type_fits(self.store, &actual, expected, budget, 0)? { return Ok(()); }
@@ -12863,7 +12946,7 @@ impl<'a> FullDecoder<'a> {
                 if self.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |site| site.instruction).is_ok() {
                     let source = self.checked_expression_type_id(value.raw() as usize)?
                         .ok_or_else(|| IrVerifyError::new("scheme callable value materialization has no source contract"))?;
-                    let source = self.store.semantic.to_type(source)?;
+                    let source = self.semantic_type(source)?;
                     if !matches!(ty, Type::Callable(_)) || !matches!(source, Type::SchemeCallable(_)) { return Err(IrVerifyError::new("scheme callable value materialization has invalid source or storage kind")); }
                     require_child(value.raw() as usize, &source)?;
                 } else {
@@ -12967,7 +13050,7 @@ impl<'a> FullDecoder<'a> {
                     }
                     Err(error) => return Err(error),
                 };
-                let actual_type = self.store.semantic.to_type(actual)?;
+                let actual_type = self.semantic_type(actual)?;
                 if actual_type == ty
                     || self.checked_declared_type_matches_narrowed_fact(
                         instruction,
@@ -13325,7 +13408,7 @@ impl<'a> FullDecoder<'a> {
                                 "checked try producer is missing its operand type",
                             ));
                         };
-                        self.store.semantic.to_type(value_type)?
+                        self.semantic_type(value_type)?
                     }
                 };
                 let result = match value_type {
@@ -13400,7 +13483,7 @@ impl<'a> FullDecoder<'a> {
                         "checked fallback producer is missing its left type",
                     ));
                 };
-                let left_type = self.store.semantic.to_type(left_type)?;
+                let left_type = self.semantic_type(left_type)?;
                 let fallback_type = match left_type {
                     Type::Optional(value) | Type::Result(value, _) => *value,
                     Type::Validated(value) => match value.base() {
@@ -13432,7 +13515,7 @@ impl<'a> FullDecoder<'a> {
                 };
                 let writers = self.checked_record_field_writers(&mut entries, |value| {
                     let source = self.expression_checked_type_id(value)?.ok_or_else(|| IrVerifyError::new("checked record spread is missing its type"))?;
-                    self.store.semantic.to_type(source).map(Arc::new)
+                    self.semantic_type(source).map(Arc::new)
                 })?;
                 for (name, expected) in fields.iter().filter(|(_, ty)| ty.contains_typed_callable()) {
                     match writers.get(name) {
@@ -13502,7 +13585,7 @@ impl<'a> FullDecoder<'a> {
                 match self.checked_value_block_result(&mut body)? {
                     CheckedValueBlockResult::Tail(value) => {
                         let actual = if let Some(type_id) = self.expression_checked_type_id(value)? {
-                            Some(self.store.semantic.to_type(type_id)?)
+                            Some(self.semantic_type(type_id)?)
                         } else {
                             self.derive_checked_expression_type(value)?
                         };
@@ -13595,7 +13678,7 @@ impl<'a> FullDecoder<'a> {
                                 "checked list splice is missing its type",
                             ));
                         };
-                        let actual = self.store.semantic.to_type(actual)?;
+                        let actual = self.semantic_type(actual)?;
                         let (actual_list, is_nonempty) = match &actual {
                             Type::Validated(validated)
                                 if validated.validation()
@@ -13806,7 +13889,7 @@ impl<'a> FullDecoder<'a> {
                 let node = self.store.scheme_type(fact.ty().ok_or_else(|| IrVerifyError::new("scoped callable initializer fact has no type"))?)?;
                 let actual = match node.tag {
                     schema::FullSchemeTypeTag::SchemeCallable => Some(Type::SchemeCallable(self.store.semantic.scheme_callable_id(node.first)?)),
-                    schema::FullSchemeTypeTag::Ground => Some(self.store.semantic.to_type(TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("scoped callable initializer ground type is invalid"))?)?),
+                    schema::FullSchemeTypeTag::Ground => Some(self.semantic_type(TypeId::from_raw(node.first).ok_or_else(|| IrVerifyError::new("scoped callable initializer ground type is invalid"))?)?),
                     _ => None,
                 };
                 if actual.as_ref() == Some(ty) { return Ok(true); }
@@ -13854,7 +13937,7 @@ impl<'a> FullDecoder<'a> {
         let Some(fact) = slot_type else {
             return Ok(());
         };
-        let fact_type = self.store.semantic.to_type(fact)?;
+        let fact_type = self.semantic_type(fact)?;
         if !fact_type.contains_typed_callable() {
             return Ok(());
         }
@@ -13863,7 +13946,7 @@ impl<'a> FullDecoder<'a> {
             return Ok(());
         }
         if let Some(initializer) = self.checked_expression_type_id(value)?
-            && self.store.semantic.to_type(initializer)? == fact_type
+            && self.semantic_type(initializer)? == fact_type
         {
             self.proven_callable_writers.borrow_mut().insert(slot);
             return Ok(());
@@ -13888,7 +13971,7 @@ impl<'a> FullDecoder<'a> {
         let Some(annotation) = annotation else {
             return Ok(());
         };
-        let annotation_type = self.store.semantic.to_type(annotation.id)?;
+        let annotation_type = self.semantic_type(annotation.id)?;
         let Some(slot_type) = self.slot_type_fact(slot)? else {
             if annotation_type == Type::Any {
                 return Ok(());
@@ -13897,7 +13980,7 @@ impl<'a> FullDecoder<'a> {
                 "annotated local has no checked slot type",
             ));
         };
-        if self.store.semantic.to_type(slot_type)? != annotation_type {
+        if self.semantic_type(slot_type)? != annotation_type {
             return Err(IrVerifyError::new(
                 "local slot type fact disagrees with its declaration annotation",
             ));
@@ -13927,7 +14010,7 @@ impl<'a> FullDecoder<'a> {
 
     fn checked_expression_type(&self, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         let type_query = match self.expression_checked_type_id(instruction) {
-            Ok(Some(type_id)) => return self.store.semantic.to_type(type_id).map(Some),
+            Ok(Some(type_id)) => return self.semantic_type(type_id).map(Some),
             Ok(None) => None,
             Err(error)
                 if self.store.tags.get(instruction) != Some(&FullTag::ExprField) =>
@@ -14144,7 +14227,7 @@ impl<'a> FullDecoder<'a> {
     ) -> Result<Option<Type>, IrVerifyError> {
         charge(1)?;
         self.checked_binding_path_type_id(use_site, binding, charge)?
-            .map(|type_id| self.store.semantic.to_type(type_id))
+            .map(|type_id| self.semantic_type(type_id))
             .transpose()
     }
 
@@ -14163,7 +14246,7 @@ impl<'a> FullDecoder<'a> {
         charge(1)?;
             while let Some(payload_id) = self.store.semantic.optional_payload_type(type_id)? {
         charge(1)?;
-                let payload = self.store.semantic.to_type(payload_id)?;
+                let payload = self.semantic_type(payload_id)?;
                 charge(prefix.len())?;
                 let prefix_binding = (binding.0, prefix.clone());
                 let narrowed = match &self.producer_prefix {
@@ -15231,7 +15314,7 @@ impl<'a> FullDecoder<'a> {
                     let GuardedReadContract::OptionalPayload(expected_payload) = expected_payload else { unreachable!() };
                     let Some(slot_type) = self
                         .checked_slot_type(slot)?
-                        .map(|type_id| self.store.semantic.to_type(type_id))
+                        .map(|type_id| self.semantic_type(type_id))
                         .transpose()?
                     else {
                         return Ok(false);
@@ -16038,7 +16121,7 @@ impl<'a> FullDecoder<'a> {
         if let Some(receiver_id) = receiver_id
             && let Some(field_id) = self.store.semantic.field_type(receiver_id, field)?
         {
-            return self.store.semantic.to_type(field_id);
+            return self.semantic_type(field_id);
         }
         match receiver {
             // A field the declared record lacks is readable only where a
@@ -16163,7 +16246,7 @@ impl<'a> FullDecoder<'a> {
             .fields
             .get(field)
             .ok_or_else(|| IrVerifyError::new("pattern variant field is outside its declaration"))?;
-        self.store.semantic.to_type(field.type_id).map(Some)
+        self.semantic_type(field.type_id).map(Some)
     }
 
     fn verify_callable_slot_writer_type(
@@ -16174,7 +16257,7 @@ impl<'a> FullDecoder<'a> {
         let Some(slot_type) = self.checked_slot_type(slot)? else {
             return Ok(());
         };
-        let slot_type = self.store.semantic.to_type(slot_type)?;
+        let slot_type = self.semantic_type(slot_type)?;
         if !slot_type.contains_typed_callable() {
             return Ok(());
         }
@@ -16222,7 +16305,7 @@ impl<'a> FullDecoder<'a> {
         path: &[CallableAssignmentPathStep],
     ) -> Result<Option<Type>, IrVerifyError> {
         let Some(root_type) = self.checked_slot_type(root_slot)? else { return Ok(None) };
-        let root_type = self.store.semantic.to_type(root_type)?;
+        let root_type = self.semantic_type(root_type)?;
         Self::assignment_target_from_type(&root_type, path, |_| Ok(())).map(|target| target.cloned())
     }
 
@@ -16698,7 +16781,7 @@ impl<'a> FullDecoder<'a> {
         for stage in &mut stages {
             for (slot, _) in Self::pipeline_stage_slots(&stage?) {
                 if let Some(ty) = self.checked_slot_type(slot)?
-                    && self.store.semantic.to_type(ty)?.contains_typed_callable()
+                    && self.semantic_type(ty)?.contains_typed_callable()
                 { callable_writer = true; break; }
             }
             if callable_writer { break; }
@@ -16891,7 +16974,7 @@ impl<'a> FullDecoder<'a> {
                     self.verify_callable_slot_writer_type(text_slot, None)?;
                     let text_type = self
                         .checked_slot_type(text_slot)?
-                        .map(|type_id| self.store.semantic.to_type(type_id))
+                        .map(|type_id| self.semantic_type(type_id))
                         .transpose()?;
                     let line_type = text_type.and_then(|text_type| match text_type {
                         Type::Str => Some(Type::Str),
@@ -18915,6 +18998,22 @@ fn indexed_stmt_can_return_with_decoder(
     instruction: usize,
     decoder: Option<&FullDecoder<'_>>,
 ) -> Result<bool, IrVerifyError> {
+    let Some(decoder) = decoder.filter(|decoder| std::ptr::eq(decoder.store, store)) else {
+        return indexed_stmt_can_return_in(store, instruction, decoder);
+    };
+    if let Some(&can_return) = decoder.decoded_views.returning_statements.borrow().get(&instruction) {
+        return Ok(can_return);
+    }
+    let can_return = indexed_stmt_can_return_in(store, instruction, Some(decoder))?;
+    decoder.decoded_views.returning_statements.borrow_mut().insert(instruction, can_return);
+    Ok(can_return)
+}
+
+fn indexed_stmt_can_return_in(
+    store: &FullStore,
+    instruction: usize,
+    decoder: Option<&FullDecoder<'_>>,
+) -> Result<bool, IrVerifyError> {
     let tag = store
         .tags
         .get(instruction)
@@ -19663,6 +19762,7 @@ impl FullVerifier {
     fn verify_with_contexts(program: &FullProgram, contexts: verify_schemes::ProducerContexts<'_>) -> Result<Vec<(u32, ExecutableOwner, Arc<Type>)>, IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
+        let tables = VerificationTables::new(store);
         let mut producer_index = verify_schemes::GroundProducerIndex::new(store)?;
         Self::verify_resource_transfer_sites(store)?;
         Self::verify_checked_call_target_coverage(store)?;
@@ -19728,7 +19828,7 @@ impl FullVerifier {
                         ));
                     }
                 }
-                store.semantic.to_type(field.type_id)?;
+                tables.semantic_type(field.type_id)?;
             }
         }
         if store.checked_pattern_variants.len() != store.declared_pattern_variants.len() {
@@ -19748,7 +19848,7 @@ impl FullVerifier {
                     "checked expression type rows are not strictly ordered expression facts",
                 ));
             }
-            let ty = store.semantic.to_type(fact.type_id)?;
+            let ty = &*tables.semantic_type(fact.type_id)?;
             if matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_)) {
                 verify_schemes::ensure_producer_context_type(store.tags[instruction], &ty)?;
                 previous_checked_expression = Some(instruction);
@@ -19786,7 +19886,7 @@ impl FullVerifier {
                     matches!(function.contract, FullCallableContract::Scheme(_))
                 }) || store.scheme_callable_calls.binary_search_by_key(&fact.instruction, |call| call.instruction).is_ok();
             let checked_unsigned_integer_literal =
-                store.tags[instruction] == FullTag::ExprUInt && ty == Type::UInt;
+                store.tags[instruction] == FullTag::ExprUInt && *ty == Type::UInt;
             let checked_prepared_constant = store.tags[instruction] == FullTag::ExprPreparedConstant;
             let checked_capture_result = matches!(store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry)
                 && matches!(ty, Type::Result(_, _));
@@ -19944,8 +20044,8 @@ impl FullVerifier {
                     IrVerifyError::new("function checked return type id is invalid")
                 })?;
                 let signature_return = store.semantic.signature_return_type(signature)?;
-                let checked_return = store.semantic.to_type(ty)?;
-                let declared_return = store.semantic.to_type(signature_return)?;
+                let checked_return = tables.semantic_type(ty)?;
+                let declared_return = tables.semantic_type(signature_return)?;
                 if !checked_return.matches_expected(&declared_return) {
                     return Err(IrVerifyError::new(
                         "checked return type disagrees with the function signature",
@@ -20013,7 +20113,7 @@ impl FullVerifier {
                 let ty = TypeId::from_raw(*raw).ok_or_else(|| {
                     IrVerifyError::new("function slot type fact id is invalid")
                 })?;
-                store.semantic.to_type(ty)?;
+                tables.semantic_type(ty)?;
             }
             let signature_param_count = match function.contract {
                 FullCallableContract::Ground(signature) => {
@@ -20041,7 +20141,7 @@ impl FullVerifier {
                         let (name, type_id, flags) =
                             store.semantic.signature_param(signature, offset)?;
                         store.semantic.type_tag(type_id)?;
-                        let parameter_type = store.semantic.to_type(type_id)?;
+                        let parameter_type = tables.semantic_type(type_id)?;
                         let encoded_name = Name::intern(store.string(param.name)?);
                         let encoded_flags = u32::from(param.flags & 2 != 0)
                             | (u32::from(param.flags & 1 != 0) << 1);
@@ -20075,7 +20175,7 @@ impl FullVerifier {
                         if node.tag == schema::FullSchemeTypeTag::Ground {
                             let type_id = TypeId::from_raw(node.first)
                                 .ok_or_else(|| IrVerifyError::new("scheme ground parameter type is invalid"))?;
-                            let parameter_type = store.semantic.to_type(type_id)?;
+                            let parameter_type = tables.semantic_type(type_id)?;
                             verify_unsigned_parameter_runtime_validation(
                                 store,
                                 params.start + offset,
@@ -20106,13 +20206,13 @@ impl FullVerifier {
                     ));
                 }
                 if identity.flags & 1 != 0 {
-                    let capture_type = store.semantic.to_type(capture.type_id)?;
+                    let capture_type = tables.semantic_type(capture.type_id)?;
                     if capture_name != "args"
                         || identity.owner != IR_NONE
                         || capture.owner != IR_NONE
                         || capture.slot_and_flags & (1 << 31) != 0
                         || !matches!(
-                            &capture_type,
+                            capture_type.as_ref(),
                             Type::List(item) if matches!(item.as_ref(), Type::Str | Type::Bytes)
                         )
                     {
@@ -20135,7 +20235,7 @@ impl FullVerifier {
             let owner = IrFunctionId::new(index)
                 .map_err(|_| IrVerifyError::new("function id is invalid"))?
                 .raw();
-            let decoder = FullDecoder {
+            let mut decoder = FullDecoder {
                 store,
                 owner,
                 instruction_range: instructions.clone(),
@@ -20159,6 +20259,7 @@ impl FullVerifier {
                 prepared_constant_work: Cell::new(0),
                 verified: false,
             };
+            tables.share(&mut decoder);
             let body_id = IrBlockId::from_raw(function.body)
                 .ok_or_else(|| IrVerifyError::new("function body block is invalid"))?;
             let body_block = store
@@ -20260,7 +20361,7 @@ impl FullVerifier {
             let return_is_stream = store.function_metadata[index].callable_kind == CallableKind::Stream
                 && match function.contract {
                     FullCallableContract::Ground(signature) => matches!(
-                        store.semantic.to_type(store.semantic.signature_return_type(signature)?)?,
+                        *tables.semantic_type(store.semantic.signature_return_type(signature)?)?,
                         Type::Stream(_)
                     ),
                     FullCallableContract::Scheme(id) => scheme_return_kind(store, store.scheme(id)?.return_type)? == LoweredReturnKind::Plain(LoweredType::Stream),
@@ -20522,6 +20623,7 @@ impl FullVerifier {
                 &mut in_place_marks,
                 Arc::clone(&function_signature_index),
                 &mut producer_index,
+                &tables,
             )?;
         }
         if previous_end != store.tags.len() {
@@ -20529,8 +20631,8 @@ impl FullVerifier {
                 "full IR contains instructions outside executable owner ranges",
             ));
         }
-        producer_index.verify_callable_facts(store)?;
-        let used_contexts = verify_schemes::verify(store, &producer_index, contexts, &function_signature_index)?;
+        producer_index.verify_callable_facts(store, &tables)?;
+        let used_contexts = verify_schemes::verify(store, &producer_index, contexts, &function_signature_index, &tables)?;
         let marks = store.in_place.get_or_init(|| in_place_marks.clone());
         if marks != &in_place_marks {
             return Err(IrVerifyError::new(
@@ -21580,7 +21682,7 @@ impl FullCodec for Type {
     ) -> Result<Self, IrVerifyError> {
         let id = TypeId::from_raw(input.raw()?)
             .ok_or_else(|| IrVerifyError::new("semantic type id is invalid"))?;
-        decoder.store.semantic.to_type(id)
+        decoder.semantic_type(id)
     }
 }
 

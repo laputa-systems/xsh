@@ -1822,9 +1822,9 @@ impl GroundProducerIndex {
         self.demand
     }
 
-    pub(in crate::runtime::eval::indexed::full) fn verify_callable_facts(&self, store: &FullStore) -> Result<(), IrVerifyError> {
+    pub(in crate::runtime::eval::indexed::full) fn verify_callable_facts<'a>(&'a self, store: &'a FullStore, tables: &'a super::super::VerificationTables<'a>) -> Result<(), IrVerifyError> {
         if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
-        let mut stream_proof = ProducerProof::new(store, self, ProducerContexts::Published, BTreeSet::new());
+        let mut stream_proof = ProducerProof::new(store, self, ProducerContexts::Published, BTreeSet::new(), Some(tables));
         stream_proof.budget.charge(store.checked_call_targets.len() + self.owners.len())?;
         for (&owner, evidence) in &self.owners {
             let driver = super::super::driver_owner_index(owner);
@@ -1835,6 +1835,7 @@ impl GroundProducerIndex {
             if decoder.owner != owner || decoder.instruction_range != evidence.range {
                 return Err(IrVerifyError::new("callable fact owner disagrees with its structural proof"));
             }
+            tables.share(&mut decoder);
             decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: evidence.range.clone(), parents: &evidence.parents, statements: &evidence.statements, children: &evidence.children, siblings: &evidence.siblings });
             decoder.producer_prefix = self.prefix_context(owner, &decoder.instruction_range)?;
             decoder.producer_demand = self.demand;
@@ -2498,6 +2499,7 @@ struct RecordProducerWriters {
 
 pub(super) struct ProducerProof<'a> {
     store: &'a FullStore,
+    tables: Option<&'a super::super::VerificationTables<'a>>,
     contexts: ProducerContexts<'a>,
     used_contexts: BTreeMap<u32, (super::super::ExecutableOwner, Arc<Type>)>,
     index: &'a GroundProducerIndex,
@@ -2975,8 +2977,8 @@ impl ConditionalProducerType {
 }
 
 impl<'a> ProducerProof<'a> {
-    pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>) -> Self {
-        let mut proof = Self { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: rustc_hash::FxHashMap::default(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: rustc_hash::FxHashMap::default(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), callable_targets: BTreeMap::new(), callable_target_incoming_reads: BTreeSet::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>, tables: Option<&'a super::super::VerificationTables<'a>>) -> Self {
+        let mut proof = Self { store, tables, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: BTreeSet::new(), expressions: rustc_hash::FxHashMap::default(), conditions: BTreeSet::new(), operand_expansions: BTreeSet::new(), pipeline_outputs: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), storage: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: rustc_hash::FxHashMap::default(), driver_output_types: BTreeMap::new(), pattern_types: BTreeMap::new(), fresh_lists: BTreeMap::new(), contextual_sources: BTreeMap::new(), deferred_sources: BTreeMap::new(), contextual_reads: BTreeMap::new(), captured_errors: BTreeMap::new(), runtime_checked_inputs: BTreeSet::new(), scheme_applications: applications, scheme_captures: BTreeSet::new(), incoming: BTreeMap::new(), callable_targets: BTreeMap::new(), callable_target_incoming_reads: BTreeSet::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
@@ -3202,9 +3204,16 @@ impl<'a> ProducerProof<'a> {
         Ok(Some((base, receiver, callable)))
     }
 
+    fn materialized_type(&mut self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
+        match self.tables {
+            Some(tables) => tables.types.to_type_with_budget(id, &mut self.budget.semantic_types),
+            None => self.store.semantic.to_type_with_budget(id, &mut self.budget.semantic_types).map(Arc::new),
+        }
+    }
+
     fn ground_type(&mut self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
         if let Some(ty) = self.types.get(&id) { ensure_substitution_type(ty)?; return Ok(Arc::clone(ty)); }
-        let ty = Arc::new(self.store.semantic.to_type_with_budget(id, &mut self.budget.semantic_types)?);
+        let ty = self.materialized_type(id)?;
         ensure_substitution_type(&ty).map_err(|error| IrVerifyError::new(format!("{}: ground producer type {ty}", error.message)))?;
         self.types.insert(id, Arc::clone(&ty));
         Ok(ty)
@@ -3212,7 +3221,7 @@ impl<'a> ProducerProof<'a> {
 
     fn contract_type(&mut self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
         if let Some(ty) = self.types.get(&id) { return Ok(Arc::clone(ty)); }
-        let ty = Arc::new(self.store.semantic.to_type_with_budget(id, &mut self.budget.semantic_types)?);
+        let ty = self.materialized_type(id)?;
         ensure_closed_type(&ty)?;
         self.types.insert(id, Arc::clone(&ty));
         Ok(ty)
@@ -3229,6 +3238,7 @@ impl<'a> ProducerProof<'a> {
         if decoder.owner != owner || decoder.instruction_range != parent_owner.range || parent_owner.parents.len() != parent_owner.range.len() {
             return Err(IrVerifyError::new("producer parent context disagrees with its owner census"));
         }
+        if let Some(tables) = self.tables { tables.share(&mut decoder); }
         decoder.borrowed_instruction_parents = Some(super::super::InstructionParentContext { owner, range: parent_owner.range.clone(), parents: &parent_owner.parents, statements: &parent_owner.statements, children: &parent_owner.children, siblings: &parent_owner.siblings });
         decoder.producer_prefix = self.index.prefix_context(owner, &decoder.instruction_range)?;
         decoder.producer_demand = self.index.demand;
@@ -5473,11 +5483,12 @@ impl<'a> ProducerProof<'a> {
             }
         } else { expected };
         if *expected == Type::Any && !super::super::verify_effects::needs_operand_proof(self.store, instruction)? { return Ok(()); }
-        if let schema::ExprView::Abort { status, .. } = decoder.expression_view(instruction)? {
+        let view = decoder.expression_view(instruction)?;
+        if let schema::ExprView::Abort { status, .. } = &view {
             self.expression(owner, status.raw() as usize, Arc::new(Type::Int), false);
             return Ok(());
         }
-        if let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
+        if let schema::ExprView::Param(slot) = view
             && matches!(expected.as_ref(), Type::Callable(_))
             && (self.store.call_instantiations.binary_search_by_key(&(instruction as u32), |instance| instance.instruction).is_ok()
                 || {
@@ -5502,7 +5513,7 @@ impl<'a> ProducerProof<'a> {
             self.slot(owner, instruction, slot, contract)?;
             return Ok(());
         }
-        if let schema::ExprView::FunctionRef { function, kind } = decoder.expression_view(instruction)?
+        if let schema::ExprView::FunctionRef { function, kind } = view
             && let Type::Callable(callable) = expected.as_ref()
         {
             let (target, contract, selected_kind) = decoder.function_reference_contract(function)?;
@@ -5533,7 +5544,7 @@ impl<'a> ProducerProof<'a> {
             None if returned
                 && matches!(expected.as_ref(), Type::Result(_, _))
                 && self.store.function_metadata[function_index(owner)?].callable_kind == CallableKind::Pure
-                && matches!(decoder.expression_view(instruction)?,
+                && matches!(view,
                     schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. }
                     | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. }
                     | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. }) =>
@@ -5546,7 +5557,7 @@ impl<'a> ProducerProof<'a> {
         } };
         let aggregate = optional_aggregate_payload(&expected);
         if (matches!(aggregate, Type::List(_) | Type::Map(_, _)) || matches!(aggregate, Type::Record(_)) && actual.is_none())
-            && let schema::ExprView::Param(slot) = decoder.expression_view(instruction)?
+            && let schema::ExprView::Param(slot) = view
             && let Some(source) = self.deferrable_aggregate_source(&decoder, instruction, aggregate)?
             && (self.declared_type(&decoder, source)?.is_none() || self.registered_map_literal_contract(&decoder, instruction, slot, source, aggregate)?)
         {
@@ -5564,10 +5575,10 @@ impl<'a> ProducerProof<'a> {
                 && matches!(expected.as_ref(), Type::Optional(payload) if payload.as_ref() == &Type::Any);
             let fits = optional_dynamic_payload || if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
             let constructor_payload_contract = owned_declared_fact && matches!(
-                (decoder.expression_view(instruction)?, actual.as_ref(), expected.as_ref()),
+                (&view, actual.as_ref(), expected.as_ref()),
                 (schema::ExprView::Ok(_), Type::Result(actual, _), Type::Result(expected, _)) if actual.matches_expected(expected)
             ) || owned_declared_fact && matches!(
-                (decoder.expression_view(instruction)?, actual.as_ref(), expected.as_ref()),
+                (&view, actual.as_ref(), expected.as_ref()),
                 (schema::ExprView::Err { .. }, Type::Result(_, actual), Type::Result(_, expected)) if actual.matches_expected(expected)
             );
             let literal_target = match expected.as_ref() { Type::Optional(payload) => payload.as_ref(), other => other };
@@ -5581,13 +5592,13 @@ impl<'a> ProducerProof<'a> {
                 && matches!(literal_target, Type::Validated(validated) if validated.validation() == crate::sema::validated::Validation::RelPath)
                 && self.confined_path_format(&decoder, instruction)?;
             let bounded_literal = !fits
-                && matches!(literal_target, Type::Validated(validated) if actual.matches_expected(validated.base()) && match (validated.validation(), decoder.expression_view(instruction)?) {
-                    (crate::sema::validated::Validation::Range(range), schema::ExprView::Int(value) | schema::ExprView::UInt(value)) => range.contains(value),
+                && matches!(literal_target, Type::Validated(validated) if actual.matches_expected(validated.base()) && match (validated.validation(), &view) {
+                    (crate::sema::validated::Validation::Range(range), schema::ExprView::Int(value) | schema::ExprView::UInt(value)) => range.contains(*value),
                     _ => false,
                 });
             let container = if returned && !actual.is_result() { expected.result_ok().unwrap_or(expected.as_ref()) } else { expected.as_ref() };
             let imported_callable_contract = !fits && decoder.checked_imported_callable_relationship(instruction, actual, container)?;
-            let literal_list = matches!(decoder.expression_view(instruction)?, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
+            let literal_list = matches!(view, schema::ExprView::List(_) | schema::ExprView::ListBuild(_))
                 && expected_list_item(container, true).is_some();
             let fresh_comprehension = self.store.tags[instruction] == FullTag::ExprListComp
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::List(_), Type::List(_)));
@@ -5602,7 +5613,7 @@ impl<'a> ProducerProof<'a> {
                     matches!(actual.unvalidated(), Type::Optional(payload) if payload.matches_expected(container)),
                 _ => false,
             };
-            let narrowed_read = if !fits && matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
+            let narrowed_read = if !fits && matches!(view, schema::ExprView::Param(_) | schema::ExprView::Field { .. }) {
                 if decoder.checked_guarded_record_read_matches_type(instruction, actual, container, &mut |amount| self.budget.charge(amount))? {
                     true
                 } else { match actual.unvalidated() {
@@ -5632,7 +5643,7 @@ impl<'a> ProducerProof<'a> {
                 !super::super::indexed_expr_can_complete(&decoder, instruction, 0)?
             } else { false };
             let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
-            let literal_map = matches!(decoder.expression_view(instruction)?, schema::ExprView::MapLiteral(_))
+            let literal_map = matches!(view, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
             if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !confined_path_format && !bounded_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !branch_verified_source && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
                 if self.store.tags[instruction] == FullTag::ExprListComp
@@ -5645,7 +5656,7 @@ impl<'a> ProducerProof<'a> {
             }
         }
         if returned && self.checked_fresh_result_context(&decoder, instruction, &expected)? { return Ok(()); }
-        let preserves_result = matches!(decoder.expression_view(instruction)?, schema::ExprView::Fail { .. } | schema::ExprView::Ok(_) | schema::ExprView::Err { .. } | schema::ExprView::Capture { .. } | schema::ExprView::ContextScope { .. } | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. });
+        let preserves_result = matches!(view, schema::ExprView::Fail { .. } | schema::ExprView::Ok(_) | schema::ExprView::Err { .. } | schema::ExprView::Capture { .. } | schema::ExprView::ContextScope { .. } | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. } | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } | schema::ExprView::ValueBlock { .. });
         let expected = if returned && !preserves_result && !actual.as_ref().is_some_and(|actual| actual.is_result()) {
             match expected.as_ref() {
                 Type::Result(ok, _) => {
@@ -5658,7 +5669,7 @@ impl<'a> ProducerProof<'a> {
         let expected = if let Type::Optional(payload) = expected.unvalidated()
             && (actual.as_ref().is_some_and(|actual| actual.unvalidated() != &Type::Null && !matches!(actual.unvalidated(), Type::Optional(_)) && actual.matches_expected(payload))
                 || (matches!(expected.as_ref(), Type::Optional(_))
-                    && matches!((decoder.expression_view(instruction)?, payload.as_ref()),
+                    && matches!((&view, payload.as_ref()),
                     (schema::ExprView::Record(_), Type::Record(_))
                     | (schema::ExprView::List(_) | schema::ExprView::ListBuild(_), Type::List(_))
                     | (schema::ExprView::MapLiteral(_), Type::Map(_, _)))))
@@ -5666,7 +5677,7 @@ impl<'a> ProducerProof<'a> {
             self.budget.charge_clone(payload)?;
             Arc::new((**payload).clone())
         } else { expected };
-        match decoder.expression_view(instruction)? {
+        match view {
             schema::ExprView::Param(_) if contextual_list_source.is_some() => {
                 self.expression(owner, contextual_list_source.unwrap(), expected, false);
                 Ok(())
@@ -9166,7 +9177,7 @@ mod declared_producer_fact_tests {
                 index.record(&decoder).unwrap();
             }
             let function = store.functions.iter().position(|function| store.string(function.name).unwrap() == "consume").unwrap();
-            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new());
+            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new(), None);
             let decoder = proof.owner(function_owner(function).unwrap()).unwrap();
             let (instruction, slot) = decoder.instruction_range.clone().find_map(|instruction| {
                 let schema::ExprView::Param(slot) = decoder.expression_view(instruction).ok()? else { return None };
@@ -9208,7 +9219,7 @@ mod declared_producer_fact_tests {
             }
             let invoke = store.functions.iter().position(|function| store.string(function.name).unwrap() == "invoke").unwrap();
             let accept = store.functions.iter().position(|function| store.string(function.name).unwrap() == "accept").unwrap();
-            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new());
+            let mut proof = ProducerProof::new(store, &index, ProducerContexts::Published, BTreeSet::new(), None);
             let decoder = proof.owner(function_owner(invoke).unwrap()).unwrap();
             let argument = decoder.instruction_range.clone().find(|&instruction| {
                 matches!(decoder.expression_view(instruction), Ok(schema::ExprView::Param(0)))
