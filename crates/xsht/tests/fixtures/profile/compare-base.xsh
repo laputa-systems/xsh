@@ -7,4 +7,4 @@ pure stable() -> Int {
   42
 }
 let _ = changed()
-for i in range(5000) { let _ = stable() }
+for _ in range(5000) { let _ = stable() }

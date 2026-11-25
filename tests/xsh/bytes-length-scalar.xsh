@@ -7,7 +7,7 @@ pure byte_lengths(data: Bytes) -> List[Int] {
   lengths
 }
 
-test test_bytes_length_in_scalar_expressions { |ctx|
+test test_bytes_length_in_scalar_expressions {
   assert byte_lengths(b"a\0b\r\n\xff\n\nlast") == [4, 2, 1, 5]
   assert b"".len() == 0
   assert b"\xc3\xa9".len() == 2
