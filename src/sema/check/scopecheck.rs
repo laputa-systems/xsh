@@ -151,44 +151,15 @@ impl ResolvedBindings {
         );
     }
 
-    pub(super) fn resolve_module_fields(
+    pub(super) fn resolve_owner_module_fields(
         &mut self,
+        owner: &mut Self,
         program: &ArenaProgram,
-        declarations: &FxHashMap<BindingId, BindingDeclaration>,
     ) {
-        let globals = declarations
-            .iter()
-            .filter_map(|(&id, declaration)| {
-                declaration
-                    .global
-                    .then_some(((declaration.namespace, declaration.name), id))
-            })
-            .collect::<FxHashMap<_, _>>();
-        for &expression in self.expression_namespaces.keys() {
-            let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
-                continue;
-            };
-            let Some(binding) = self.expressions.get(&base).copied() else {
-                continue;
-            };
-            let Some(BindingDeclaration {
-                kind: BindingKind::Module(namespace),
-                ..
-            }) = declarations.get(&binding)
-            else {
-                continue;
-            };
-            if let Some(&target) = globals.get(&(Some(*namespace), name)) {
-                if let Some(existing) = self.expressions.get(&expression) {
-                    assert_eq!(
-                        *existing, target,
-                        "qualified module field resolved to conflicting declarations"
-                    );
-                } else {
-                    self.expressions.insert(expression, target);
-                }
-            }
-        }
+        let globals = module_globals(&self.declarations);
+        let expressions = owner.expression_namespaces.keys().copied();
+        resolve_module_field_expressions(&mut owner.expressions, expressions.clone(), program, &self.declarations, &globals);
+        resolve_module_field_expressions(&mut self.expressions, expressions, program, &self.declarations, &globals);
     }
 
     pub(super) fn immutable_value_source(&self, program: &ArenaProgram, expression: ExprId) -> Option<ExprId> {
@@ -217,6 +188,53 @@ impl ResolvedBindings {
         match self.declarations[&id].kind {
             BindingKind::Constant(statement) => Some(statement),
             BindingKind::Runtime | BindingKind::Module(_) => None,
+        }
+    }
+}
+
+fn module_globals(
+    declarations: &FxHashMap<BindingId, BindingDeclaration>,
+) -> FxHashMap<(Option<Name>, Name), BindingId> {
+    declarations
+        .iter()
+        .filter_map(|(&id, declaration)| {
+            declaration
+                .global
+                .then_some(((declaration.namespace, declaration.name), id))
+        })
+        .collect()
+}
+
+fn resolve_module_field_expressions(
+    resolved: &mut FxHashMap<ExprId, BindingId>,
+    expressions: impl Iterator<Item = ExprId>,
+    program: &ArenaProgram,
+    declarations: &FxHashMap<BindingId, BindingDeclaration>,
+    globals: &FxHashMap<(Option<Name>, Name), BindingId>,
+) {
+    for expression in expressions {
+        let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+            continue;
+        };
+        let Some(binding) = resolved.get(&base).copied() else {
+            continue;
+        };
+        let Some(BindingDeclaration {
+            kind: BindingKind::Module(namespace),
+            ..
+        }) = declarations.get(&binding)
+        else {
+            continue;
+        };
+        if let Some(&target) = globals.get(&(Some(*namespace), name)) {
+            if let Some(existing) = resolved.get(&expression) {
+                assert_eq!(
+                    *existing, target,
+                    "qualified module field resolved to conflicting declarations"
+                );
+            } else {
+                resolved.insert(expression, target);
+            }
         }
     }
 }

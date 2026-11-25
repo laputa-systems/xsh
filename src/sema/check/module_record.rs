@@ -58,6 +58,7 @@ impl ModuleRecordKey {
 
 pub(super) struct ModuleRecord {
     key: ModuleRecordKey,
+    dependency_keys: FxHashSet<String>,
     statements: Arc<[StmtId]>,
     owner_facts: Arc<PreparedModuleFacts>,
     prepared_facts: Arc<PreparedModuleFacts>,
@@ -154,7 +155,8 @@ impl ModuleRecords {
             let (record, created) = match cache.entry(key.clone()) {
                 Entry::Occupied(entry) => (entry.get().clone(), false),
                 Entry::Vacant(entry) => {
-                    let dependency_facts = Self::module_dependency_facts(view, module, &prepared);
+                    let dependency_keys = module_dependency_keys(program, module);
+                    let dependency_facts = Self::module_dependency_facts(view, module, &dependency_keys, &prepared);
                     let module_view = CheckBundleView::for_module_owner(
                         program,
                         module,
@@ -174,6 +176,7 @@ impl ModuleRecords {
                     }
                     let record = Arc::new(ModuleRecord {
                         key: key.clone(),
+                        dependency_keys,
                         statements: program.module_statements(module).collect::<Vec<_>>().into(),
                         owner_facts,
                         prepared_facts: Arc::new(visible_facts),
@@ -204,15 +207,13 @@ impl ModuleRecords {
                 Entry::Occupied(entry) => (entry.get().clone(), false),
                 Entry::Vacant(entry) => {
                     let mut dependency_facts = PreparedModuleFacts::default();
-                    let owners = view.modules.iter().map(|module| {
+                    let dependencies = view.modules.iter().map(|module| {
                         prepared
                             .get(module.key.as_str())
                             .expect("reachable module was prepared before entry facts")
-                            .owner_facts()
                             .as_ref()
                     }).collect::<Vec<_>>();
-                    dependency_facts.merge_owners_unresolved(&owners);
-                    dependency_facts.resolve_module_fields(program);
+                    dependency_facts.merge_dependencies(&dependencies);
                     let root_view = CheckBundleView::for_module(
                         program,
                         view.root_statements,
@@ -247,6 +248,7 @@ impl ModuleRecords {
                     record_test_preparation(preparations, root_key.clone());
                     let record = Arc::new(ModuleRecord {
                         key: root_key.clone(),
+                        dependency_keys: FxHashSet::default(),
                         statements: view.statement_ids().collect::<Vec<_>>().into(),
                         owner_facts,
                         prepared_facts: Arc::new(visible_facts),
@@ -270,11 +272,11 @@ impl ModuleRecords {
     fn module_dependency_facts(
         view: &CheckBundleView<'_>,
         module: &ArenaUserModule,
+        dependency_keys: &FxHashSet<String>,
         prepared: &FxHashMap<Arc<str>, Arc<ModuleRecord>>,
     ) -> PreparedModuleFacts {
-        let dependency_keys = module_dependency_keys(view.program, module);
         let mut facts = PreparedModuleFacts::default();
-        let owners = view.modules.iter().copied()
+        let dependencies = view.modules.iter().copied()
             .filter(|dependency| dependency.key != module.key && dependency_keys.contains(&dependency.key))
             .map(|dependency| {
                 prepared
@@ -287,14 +289,10 @@ impl ModuleRecords {
                             prepared.len(),
                         )
                     })
-                    .owner_facts()
                     .as_ref()
             })
             .collect::<Vec<_>>();
-        if !owners.is_empty() {
-            facts.merge_owners_unresolved(&owners);
-            facts.resolve_module_fields(view.program);
-        }
+        facts.merge_dependencies(&dependencies);
         facts
     }
 
@@ -496,10 +494,8 @@ impl PreparedModuleFacts {
         let mut visible_bindings = dependencies
             .resolved_bindings
             .merge_visible(&owner_bindings);
-        let declarations = visible_bindings.declarations.clone();
-        visible_bindings.resolve_module_fields(program, &declarations);
         let mut resolved_bindings = owner_bindings;
-        resolved_bindings.resolve_module_fields(program, &declarations);
+        visible_bindings.resolve_owner_module_fields(&mut resolved_bindings, program);
         let resolved_bindings = Arc::new(resolved_bindings);
         let return_inference_index = Arc::new(ReturnInferenceIndex::collect(view));
         let local_inference = LocalInference::prepare(view);
@@ -544,18 +540,23 @@ impl PreparedModuleFacts {
         self.merge_owner_facts(&[owner]);
     }
 
-    fn resolve_module_fields(&mut self, program: &ArenaProgram) {
-        let bindings = Arc::make_mut(&mut self.resolved_bindings);
-        let declarations = bindings.declarations.clone();
-        bindings.resolve_module_fields(program, &declarations);
-    }
-
-    fn merge_owners_unresolved(&mut self, owners: &[&Self]) {
-        let bindings = Arc::make_mut(&mut self.resolved_bindings);
-        for owner in owners {
-            bindings.merge_visible_in_place(&owner.resolved_bindings);
+    fn merge_dependencies(&mut self, dependencies: &[&ModuleRecord]) {
+        let Some(covering) = dependencies.iter().copied().max_by_key(|record| record.dependency_keys.len()) else {
+            return;
+        };
+        self.resolved_bindings = Arc::clone(&covering.prepared_facts().resolved_bindings);
+        let uncovered = dependencies.iter().filter(|record| {
+            record.key.module_key != covering.key.module_key
+                && !covering.dependency_keys.contains(record.key.module_key.as_ref())
+        }).collect::<Vec<_>>();
+        if !uncovered.is_empty() {
+            let bindings = Arc::make_mut(&mut self.resolved_bindings);
+            for record in uncovered {
+                bindings.merge_visible_in_place(&record.owner_facts().resolved_bindings);
+            }
         }
-        self.merge_owner_facts(owners);
+        let owners = dependencies.iter().map(|record| record.owner_facts().as_ref()).collect::<Vec<_>>();
+        self.merge_owner_facts(&owners);
     }
 
     fn merge_owner_facts(&mut self, owners: &[&Self]) {
