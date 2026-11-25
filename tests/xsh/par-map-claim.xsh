@@ -7,11 +7,11 @@ pure uneven(n: Int) -> Int {
 proc fail_later(root: Path) [fs, time, error] -> Result[List[Int]] {
   [20, 1, 2, 3] |> par-map(jobs: 2) { |n|
     if n == 20 {
-      fp"{root}/started".touch()?
+      fp"{root}/started".touch()
       time.sleep(2s)
     }
     if n == 1 {
-      wait until fp"{root}/started".exists()? within 5s every 5ms
+      wait until fp"{root}/started".exists() within 5s every 5ms
       fail "later item"
     }
     uneven(n)
