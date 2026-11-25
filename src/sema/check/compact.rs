@@ -282,6 +282,7 @@ impl CompactBodyFacts {
         let mut record_field_types = BTreeMap::new();
         facts.expr_types.reserve(checked.expr_types.len());
         let expression_sources = expression_fact_sources(checked);
+        let mut expressions = Vec::new();
         for (index, source) in row_sources(arena.expr_tags.len(), &arena.expr_span_source_overrides, arena.span_source_id) {
             if !source.is_some_and(|source| expression_sources.contains(&source)) {
                 continue;
@@ -289,29 +290,7 @@ impl CompactBodyFacts {
             let id = ExprId::from_index(index);
             let expression = arena.expr(id);
             let span = expression.span;
-            if let Some(ty) = checked.expr_types.get(&span) {
-                facts.expr_types.insert(id, ty.clone());
-            }
-            if let Some(target) = checked.requirement_targets.get(&span) {
-                facts.requirement_targets.insert(id, target.clone());
-            }
-            if checked.projections.contains_key(&span) {
-                facts.projections.insert(id);
-            }
-            if checked.proven_nonnull_fallback_receivers.contains(&span) {
-                facts.proven_nonnull_fallback_receivers.insert(id);
-            }
-            if checked.propagating_conditions.contains(&span) {
-                facts.propagating_conditions.insert(id);
-            }
-            if let Some(call) = checked.api_calls.get(&span) {
-                facts.api_calls.insert(id, call.clone());
-            }
-
-            if let Some(target) = checked.selected_function_calls.get(&span) {
-                facts.selected_function_calls.insert(id, *target);
-                selected_function_expr_spans.insert(span);
-            }
+            expressions.push((span, id));
             if let ArenaExprKind::Record(fields) = expression.kind {
                 for field in arena.record_fields(fields) {
                     let crate::syntax::arena::ArenaRecordFieldKind::Shorthand {
@@ -335,60 +314,126 @@ impl CompactBodyFacts {
                     }
                 }
             }
-            if checked.statically_resolved_call_spans.contains(&span) {
+        }
+        expressions.sort_unstable_by_key(|&(span, _)| span);
+        let mut expr_index = 0;
+        for (&span, ty) in &checked.expr_types {
+            while expr_index < expressions.len() && expressions[expr_index].0 < span {
+                expr_index += 1;
+            }
+            while expr_index < expressions.len() && expressions[expr_index].0 == span {
+                facts.expr_types.insert(expressions[expr_index].1, ty.clone());
+                expr_index += 1;
+            }
+        }
+        macro_rules! matching_ids {
+            ($span:expr) => {{
+                let span = $span;
+                let first = expressions.partition_point(|&(candidate, _)| candidate < span);
+                expressions[first..].iter().take_while(move |&&(candidate, _)| candidate == span).map(|&(_, id)| id)
+            }};
+        }
+        for (span, value) in &checked.requirement_targets {
+            for id in matching_ids!(*span) {
+                facts.requirement_targets.insert(id, value.clone());
+            }
+        }
+        for (span, _value) in &checked.projections {
+            for id in matching_ids!(*span) {
+                facts.projections.insert(id);
+            }
+        }
+        for &span in &checked.proven_nonnull_fallback_receivers {
+            for id in matching_ids!(span) {
+                facts.proven_nonnull_fallback_receivers.insert(id);
+            }
+        }
+        for &span in &checked.propagating_conditions {
+            for id in matching_ids!(span) {
+                facts.propagating_conditions.insert(id);
+            }
+        }
+        for (span, value) in &checked.api_calls {
+            for id in matching_ids!(*span) {
+                facts.api_calls.insert(id, value.clone());
+            }
+        }
+        for (span, value) in &checked.selected_function_calls {
+            for id in matching_ids!(*span) {
+                facts.selected_function_calls.insert(id, *value);
+                selected_function_expr_spans.insert(*span);
+            }
+        }
+        for &span in &checked.statically_resolved_call_spans {
+            for id in matching_ids!(span) {
                 facts.statically_resolved_calls.insert(id);
             }
-            if matches!(expression.kind, ArenaExprKind::Call { .. })
-                && let Some(instance) = checked.resolved_type_expressions.instantiations.get(&span) {
-                facts.resolved_type_expressions.instantiations.insert(id, instance.clone());
+        }
+        for (span, value) in &checked.resolved_type_expressions.instantiations {
+            for id in matching_ids!(*span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::Call { .. }) { continue; }
+                facts.resolved_type_expressions.instantiations.insert(id, value.clone());
             }
-            for role in [crate::sema::schemes::InstantiationRole::Call, crate::sema::schemes::InstantiationRole::Value] {
-                let site = crate::sema::schemes::InstantiationSite { source: span, role };
-                if let Some(&relationship) = checked.scheme_callable_calls.get(&site) {
-                    facts.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite { source: id, role }, relationship);
-                }
-                if let Some(instantiation) = checked.call_instantiations.get(&site) {
-                    facts.call_instantiations.insert(crate::sema::schemes::InstantiationSite { source: id, role }, instantiation.clone());
-                }
+        }
+        for (site, value) in &checked.scheme_callable_calls {
+            for id in matching_ids!(site.source) {
+                facts.scheme_callable_calls.insert(crate::sema::schemes::InstantiationSite { source: id, role: site.role }, *value);
             }
-            if matches!(expression.kind, ArenaExprKind::Call { .. })
-                && let Some(callable) = checked.typed_callable_calls.get(&span)
-            {
-                facts.typed_callable_calls.insert(id, callable.clone());
+        }
+        for (site, value) in &checked.call_instantiations {
+            for id in matching_ids!(site.source) {
+                facts.call_instantiations.insert(crate::sema::schemes::InstantiationSite { source: id, role: site.role }, value.clone());
             }
-            if let Some(variant) = checked.inferred_variants.get(&span) {
-                facts.inferred_variants.insert(id, variant.clone());
+        }
+        for (span, value) in &checked.typed_callable_calls {
+            for id in matching_ids!(*span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::Call { .. }) { continue; }
+                facts.typed_callable_calls.insert(id, value.clone());
             }
-            if matches!(expression.kind, ArenaExprKind::Str(_))
-                && checked.path_literals.contains(&span)
-            {
+        }
+        for (span, value) in &checked.inferred_variants {
+            for id in matching_ids!(*span) {
+                facts.inferred_variants.insert(id, value.clone());
+            }
+        }
+        for &span in &checked.path_literals {
+            for id in matching_ids!(span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::Str(_)) { continue; }
                 facts.path_literals.insert(id);
             }
-            if let Some(fields) = checked.record_constructor_fields.get(&span) {
-                facts.record_constructor_fields.insert(id, fields.clone());
+        }
+        for (span, value) in &checked.record_constructor_fields {
+            for id in matching_ids!(*span) {
+                facts.record_constructor_fields.insert(id, value.clone());
             }
-            if let Some(constructor) = checked.error_constructors.get(&span) {
-                facts.error_constructors.insert(id, constructor.clone());
+        }
+        for (span, value) in &checked.error_constructors {
+            for id in matching_ids!(*span) {
+                facts.error_constructors.insert(id, value.clone());
             }
-            if matches!(expression.kind, ArenaExprKind::PatternCondition { .. })
-                && checked.optional_binding_spans.contains(&span)
-            {
+        }
+        for &span in &checked.optional_binding_spans {
+            for id in matching_ids!(span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::PatternCondition { .. }) { continue; }
                 facts.optional_binding_conditions.insert(id);
             }
-            if matches!(expression.kind, ArenaExprKind::Index { .. })
-                && let Some(distance) = checked.from_end_indexes.get(&span)
-            {
-                facts.from_end_indexes.insert(id, *distance);
+        }
+        for (span, value) in &checked.from_end_indexes {
+            for id in matching_ids!(*span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::Index { .. }) { continue; }
+                facts.from_end_indexes.insert(id, *value);
             }
-            if matches!(expression.kind, ArenaExprKind::Convert { .. })
-                && let Some(conversion) = checked.conversions.get(&span)
-            {
-                facts.conversions.insert(id, *conversion);
+        }
+        for (span, value) in &checked.conversions {
+            for id in matching_ids!(*span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::Convert { .. }) { continue; }
+                facts.conversions.insert(id, *value);
             }
-            if matches!(expression.kind, ArenaExprKind::ResourceScope { .. })
-                && let Some(kinds) = checked.resource_scopes.get(&span)
-            {
-                facts.resource_scopes.insert(id, kinds.clone());
+        }
+        for (span, value) in &checked.resource_scopes {
+            for id in matching_ids!(*span) {
+                if !matches!(arena.expr_kind(id), ArenaExprKind::ResourceScope { .. }) { continue; }
+                facts.resource_scopes.insert(id, value.clone());
             }
         }
         if !checked.inferred_variant_patterns.is_empty() {
@@ -534,5 +579,70 @@ impl Checker {
                 .filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error).collect();
             output
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sema::check::CheckOptions;
+    use crate::sema::schemes::{InstantiationRole, InstantiationSite};
+    use crate::source::SourceId;
+    use crate::syntax::arena::ArenaProgramBuilder;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn shared_expression_spans_preserve_checked_facts() {
+        let source = "let value: Int = match Ok(3) { Ok(count) => count, Err(_) => 0 }\n";
+        let source_id = SourceId::new(0);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+        let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let start = source.find('3').unwrap();
+        let shared_span = Span::new(source_id, start, start + 1);
+        builder.push_null_expr(shared_span);
+        builder.push_bool_expr(false, shared_span);
+        let program = builder.finish_with_statements(parsed.statements);
+        let checked = Checker::check_arena_with_options(&program, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let arena = &program.arena;
+        let facts = CompactBodyFacts::collect(&program, &checked);
+        let mut typed_spans = BTreeMap::new();
+        for index in 0..arena.expr_tags.len() {
+            let id = ExprId::from_index(index);
+            let span = arena.expr_span(id);
+            let kind = arena.expr_kind(id);
+            if checked.expr_types.contains_key(&span) {
+                *typed_spans.entry(span).or_insert(0) += 1;
+            }
+            macro_rules! compare {
+                ($dst:expr, $src:expr) => { assert_eq!(format!("{:?}", $dst), format!("{:?}", $src), "expression {index}"); };
+            }
+            compare!(facts.expr_types.get(&id), checked.expr_types.get(&span));
+            compare!(facts.requirement_targets.get(&id), checked.requirement_targets.get(&span));
+            assert_eq!(facts.projections.contains(&id), checked.projections.contains_key(&span));
+            assert_eq!(facts.proven_nonnull_fallback_receivers.contains(&id), checked.proven_nonnull_fallback_receivers.contains(&span));
+            assert_eq!(facts.propagating_conditions.contains(&id), checked.propagating_conditions.contains(&span));
+            compare!(facts.api_calls.get(&id), checked.api_calls.get(&span));
+            compare!(facts.selected_function_calls.get(&id), checked.selected_function_calls.get(&span));
+            assert_eq!(facts.statically_resolved_calls.contains(&id), checked.statically_resolved_call_spans.contains(&span));
+            let is_call = matches!(kind, ArenaExprKind::Call { .. });
+            compare!(facts.resolved_type_expressions.instantiations.get(&id), checked.resolved_type_expressions.instantiations.get(&span).filter(|_| is_call));
+            for role in [InstantiationRole::Call, InstantiationRole::Value] {
+                compare!(facts.scheme_callable_calls.get(&InstantiationSite { source: id, role }), checked.scheme_callable_calls.get(&InstantiationSite { source: span, role }));
+                compare!(facts.call_instantiations.get(&InstantiationSite { source: id, role }), checked.call_instantiations.get(&InstantiationSite { source: span, role }));
+            }
+            compare!(facts.typed_callable_calls.get(&id), checked.typed_callable_calls.get(&span).filter(|_| is_call));
+            compare!(facts.inferred_variants.get(&id), checked.inferred_variants.get(&span));
+            assert_eq!(facts.path_literals.contains(&id), matches!(kind, ArenaExprKind::Str(_)) && checked.path_literals.contains(&span));
+            compare!(facts.record_constructor_fields.get(&id), checked.record_constructor_fields.get(&span));
+            compare!(facts.error_constructors.get(&id), checked.error_constructors.get(&span));
+            assert_eq!(facts.optional_binding_conditions.contains(&id), matches!(kind, ArenaExprKind::PatternCondition { .. }) && checked.optional_binding_spans.contains(&span));
+            compare!(facts.from_end_indexes.get(&id), checked.from_end_indexes.get(&span).filter(|_| matches!(kind, ArenaExprKind::Index { .. })));
+            compare!(facts.conversions.get(&id), checked.conversions.get(&span).filter(|_| matches!(kind, ArenaExprKind::Convert { .. })));
+            compare!(facts.resource_scopes.get(&id), checked.resource_scopes.get(&span).filter(|_| matches!(kind, ArenaExprKind::ResourceScope { .. })));
+        }
+        assert!(typed_spans.values().any(|&count| count > 1), "fixture must have a shared checked span");
     }
 }
