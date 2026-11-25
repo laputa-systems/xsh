@@ -580,28 +580,49 @@ impl Checker {
             let origins_ready = checker.stream_origin_outputs == provisional_origins
                 || (!checker.stream_loop_header_widened.get() && declarations_ready);
             if effects_ready && origins_ready {
-                checker.discard_stream_origin_transfers();
-                checker.effect_summaries.extend(solved);
-                checker.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(external_origins), checker.stream_origin_outputs.clone());
-                return Ok((checker, output));
+                return Ok(Self::finish_effect_probe(checker, output, solved, external_origins));
             }
+            let declarations_read = checker.provisional_stream_declarations_read.get();
             provisional_origins = match transfers {
-                Some(transfers) if !transfers.available() || !checker.provisional_stream_declarations_read.get() => {
+                Some(transfers) if transfers.available() && effects_ready && (declarations_read || checker.diagnostics.is_empty()) => {
+                    let (origins, fixpoint) = transfers.close(&checker.stream_origin_outputs);
+                    if fixpoint && checker.diagnostics.is_empty()
+                        && transfers.resolve_checked_origins(&origins, [&mut checker.stream_expr_origins, &mut checker.stream_stmt_origins])
+                    {
+                        checker.stream_origin_outputs = origins;
+                        return Ok(Self::finish_effect_probe(checker, output, solved, external_origins));
+                    }
+                    if !declarations_read {
+                        record_transfers = false;
+                        checker.stream_origin_outputs
+                    } else {
+                        if fixpoint {
+                            record_transfers = false;
+                            closed_origins = Some(origins.clone());
+                        }
+                        origins
+                    }
+                }
+                Some(transfers) if !transfers.available() || !declarations_read => {
                     record_transfers = false;
                     checker.stream_origin_outputs
-                }
-                Some(transfers) if effects_ready => {
-                    let (origins, fixpoint) = transfers.close(&checker.stream_origin_outputs);
-                    if fixpoint {
-                        record_transfers = false;
-                        closed_origins = Some(origins.clone());
-                    }
-                    origins
                 }
                 _ => checker.stream_origin_outputs,
             };
             provisional = solved;
         }
+    }
+
+    fn finish_effect_probe<T>(
+        mut checker: Self,
+        output: T,
+        solved: std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+        external_origins: &Arc<super::stream_origins::StreamOriginSummaries>,
+    ) -> (Self, T) {
+        checker.discard_stream_origin_transfers();
+        checker.effect_summaries.extend(solved);
+        checker.stream_origin_inputs = super::stream_origins::StreamOriginInputs::new(Arc::clone(external_origins), checker.stream_origin_outputs.clone());
+        (checker, output)
     }
 
     fn publish_embedded_record(
@@ -3249,10 +3270,10 @@ mod tests {
     }
 
     #[test]
-    fn mutually_recursive_projection_rotations_close_before_one_confirming_pass() {
+    fn mutually_recursive_projection_rotations_close_without_a_confirming_pass() {
         let [replayed, closed] = converge_with_and_without_transfer_closure(PROJECTION_ROTATIONS);
         assert!(replayed >= 4, "the rotation reaches its summaries one call level per replayed pass: {replayed}");
-        assert_eq!(closed, 2);
+        assert_eq!(closed, 1);
     }
 
     #[test]
@@ -3266,7 +3287,7 @@ mod tests {
         ));
         let [replayed, closed] = converge_with_and_without_transfer_closure(&source);
         assert!(replayed >= 4, "{replayed}");
-        assert_eq!(closed, 2);
+        assert_eq!(closed, 1);
     }
 
     #[test]
@@ -3289,6 +3310,30 @@ mod tests {
         ));
         let [replayed, closed] = converge_with_and_without_transfer_closure(&source);
         assert!(replayed >= 4, "{replayed}");
-        assert_eq!(closed, 2);
+        assert_eq!(closed, 1);
+    }
+
+    #[test]
+    fn widened_loop_headers_without_declaration_reads_close_in_the_checked_pass() {
+        let source = concat!(
+            "pure pick(first: Stream[Int], second: Stream[Int]) -> Stream[Int] {\n",
+            "  var chosen = first\n",
+            "  var count = 0\n",
+            "  while count < 3 {\n",
+            "    for _ in [1] { let _ = chosen }\n",
+            "    chosen = second\n",
+            "    count += 1\n",
+            "  }\n",
+            "  chosen\n",
+            "}\n",
+            "pure relay(first: Stream[Int], second: Stream[Int]) -> List[Stream[Int]] {\n",
+            "  var rows = [first]\n",
+            "  for _ in [1, 2] { rows = rows + [second] }\n",
+            "  rows\n",
+            "}\n",
+        );
+        let [replayed, closed] = converge_with_and_without_transfer_closure(source);
+        assert!(replayed >= 2, "{replayed}");
+        assert_eq!(closed, 1);
     }
 }
