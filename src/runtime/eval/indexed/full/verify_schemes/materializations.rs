@@ -1,11 +1,11 @@
-use super::{FullStore, SchemeScope, Arc, IrVerifyError, SchemeInstantiationBudget, FullTag, decoder_for_instruction, schema, ValueCheckView, caller_scheme_for_instruction, SchemeType, scheme_body_fact_type, FullSchemeBodyFactKind, decode_scheme_type, checked_expression_type_id, body_types_equal, instantiate_bound_type, CallSubstitution, SchemeTypeId, FullSchemeId, mark_range, IR_NONE, FullCallableContract, BTreeSet, Name, FullFunction, FullScheme, bounded, build_symbolic_substitution, effects, applications, references, build_substitution, operations, methods, wrappers};
+use super::{FullStore, SchemeScope, IrVerifyError, SchemeInstantiationBudget, FullTag, InstructionDecoders, schema, ValueCheckView, caller_scheme_for_instruction, SchemeType, scheme_body_fact_type, FullSchemeBodyFactKind, decode_scheme_type, checked_expression_type_id, body_types_equal, instantiate_bound_type, CallSubstitution, SchemeTypeId, FullSchemeId, mark_range, IR_NONE, FullCallableContract, BTreeSet, Name, FullFunction, FullScheme, bounded, build_symbolic_substitution, effects, applications, references, build_substitution, operations, methods, wrappers};
 use super::body::BodyTypeRef;
 use super::super::value_materialization::FullMaterializationKind as K;
 
 pub(super) fn verify(
     store: &FullStore,
     scopes: &[Option<SchemeScope>],
-    signatures: &Arc<super::super::FunctionSignatureIndex>,
+    decoders: &InstructionDecoders<'_>,
     type_coverage: &mut [bool],
     row_coverage: &mut [bool],
     field_coverage: &mut [bool],
@@ -19,7 +19,7 @@ pub(super) fn verify(
     for instruction in 0..store.tags.len() {
         budget.charge(1)?;
         if store.tags[instruction] != FullTag::ExprCheckedValue { continue; }
-        let decoder = decoder_for_instruction(store, instruction, signatures)?;
+        let decoder = decoders.decoder(instruction)?;
         let schema::ExprView::CheckedValue { check: ValueCheckView::Materialization(id), .. } = decoder.expression_view(instruction)? else { continue; };
         let header = store.value_materializations.get(id as usize).ok_or_else(invalid)?;
         let covered = headers.get_mut(id as usize).ok_or_else(invalid)?;
