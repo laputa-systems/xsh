@@ -58,19 +58,20 @@ fn collect_body_type_facts(
     let mut patterns = FxHashSet::default();
     let mut binding_targets = FxHashSet::default();
     let mut assign_targets = FxHashSet::default();
-    let mut expression_spans = std::collections::BTreeSet::new();
+    let mut expression_spans = Vec::new();
     let mut failure_only_completion_expressions = FxHashSet::default();
-    let mut types = BTreeMap::new();
+    let mut types = Vec::new();
     let mut tail_types = BTreeMap::new();
     while let Some((child, usage)) = pending.pop() {
         match child {
             ArenaChild::Expr(id) if expressions.insert((id, usage)) => {
-                expression_spans.insert(arena.expr(id).span);
-                if let Some(ty) = checked.get(&arena.expr(id).span) {
-                    types.insert(id, ty.clone());
+                let expression = arena.expr(id);
+                expression_spans.push(expression.span);
+                if let Some(ty) = checked.get(&expression.span) {
+                    types.push((id, ty.clone()));
                 }
                 if prepared.values.contains_key(&id) || selected_nullary(id) { continue; }
-                if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = arena.expr(id).kind
+                if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = expression.kind
                     && selected_callee(id)
                 {
                     pending.push((ArenaChild::Expr(callee), BodyFactUse::SelectedCallee));
@@ -156,10 +157,10 @@ fn collect_body_type_facts(
         let start = (Span::at(span.source_id, span.start()), Name::UNKNOWN);
         let end = (Span::at(span.source_id, span.end()), Name::UNKNOWN);
         reads.extend(command_sites.range(start..end).filter_map(|(&(site, _), &binding)| (site.end() <= span.end()).then_some(binding)));
-        expression_spans.insert(span);
+        expression_spans.push(span);
     }
     let local_statements = statements.into_iter().filter_map(|(statement, usage)| (usage == BodyFactUse::Executable).then_some(statement)).collect();
-    (types, tail_types, expression_spans, reads, local_statements, failure_only_completion_expressions)
+    (types.into_iter().collect(), tail_types, expression_spans.into_iter().collect(), reads, local_statements, failure_only_completion_expressions)
 }
 
 fn is_direct_err_constructor(arena: &crate::syntax::arena::AstArena, expression: ExprId) -> bool {
