@@ -4778,8 +4778,18 @@ impl TypeConstraints {
         ty: &Type,
     ) -> Result<FxHashSet<TypeVariableId>, ConstraintResolutionError> {
         let mut variables = FxHashSet::default();
-        let mut pending = vec![(ty, 0)];
-        while let Some((ty, depth)) = pending.pop() {
+        let mut inline = [(ty, 0); 32];
+        let mut count = 1;
+        let mut overflow = Vec::new();
+        loop {
+            let (ty, depth) = if let Some(node) = overflow.pop() {
+                node
+            } else if count > 0 {
+                count -= 1;
+                inline[count]
+            } else {
+                break;
+            };
             if depth > MAX_TYPE_DEPTH {
                 return Err(ConstraintResolutionError::TypeDepth);
             }
@@ -4791,7 +4801,15 @@ impl TypeConstraints {
                     };
                     variables.insert(variable.canonical);
                 }
-                _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
+                _ => ty.for_each_child(|child| {
+                    let node = (child, depth + 1);
+                    if count < inline.len() && overflow.is_empty() {
+                        inline[count] = node;
+                        count += 1;
+                    } else {
+                        overflow.push(node);
+                    }
+                }),
             }
         }
         Ok(variables)
@@ -5452,6 +5470,17 @@ mod tests {
                 effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
+    }
+
+    #[test]
+    fn variable_ids_handles_wide_and_deep_types() {
+        let mut constraints = TypeConstraints::default();
+        let members: Vec<_> = (0..64).map(|index| constraints.fresh(span(index))).collect();
+        let expected: FxHashSet<_> = members.iter().map(variable_id).collect();
+        assert_eq!(constraints.variable_ids(&Type::Union(members)).unwrap(), expected);
+        let mut too_deep = Type::Int;
+        for _ in 0..=MAX_TYPE_DEPTH { too_deep = Type::List(Box::new(too_deep)); }
+        assert_eq!(constraints.variable_ids(&too_deep), Err(ConstraintResolutionError::TypeDepth));
     }
 
     #[test]
