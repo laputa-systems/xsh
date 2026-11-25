@@ -7139,10 +7139,6 @@ enum InstructionOwner {
     Driver(usize),
 }
 
-/// Opens a decoder for the executable owner of an instruction: the owner that a
-/// scan of the function ranges and then the driver ranges, in order, reaches
-/// first. The table holds that answer for every instruction the scan resolves;
-/// any other instruction repeats the scan, which reports its error.
 struct InstructionDecoders<'store> {
     store: &'store FullStore,
     function_signatures: Arc<super::FunctionSignatureIndex>,

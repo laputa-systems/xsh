@@ -643,10 +643,6 @@ struct FunctionSignatureIndex {
     builtin_methods: BuiltinMethodSignatures,
 }
 
-/// Builtin method signatures instantiated for a receiver type during one
-/// verification. The registry and template instantiation are fixed and
-/// structural in the receiver type, so an equal receiver and method name
-/// always instantiate equal signatures.
 #[derive(Default)]
 struct BuiltinMethodSignatures {
     by_name: RefCell<FxHashMap<Box<str>, Vec<(Type, Option<Vec<crate::modules::signature::ModuleFnSig>>)>>>,
@@ -7513,10 +7509,6 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     verified: bool,
 }
 
-/// Expression and statement views this decoder has decoded. A view is a pure
-/// function of the store, the decoder's owner context, and the instruction, so
-/// a later request reuses it; an instruction that fails to decode keeps no view
-/// and decodes again to report the same error.
 #[derive(Default)]
 struct DecodedViews<'a> {
     expressions: RefCell<FxHashMap<usize, schema::ExprView<'a>>>,
