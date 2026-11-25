@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 193
+Next: 196
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -10,6 +10,33 @@ owns VM milestones. Implement each item in its owning repository.
 
 Runtime proof limits appear in each ticket. Findings marked unproven need a
 reproducer. The [roadmap](docs/roadmap.md) owns campaign status and sequence.
+
+### XSH-193 · P2 · Errors raised inside a `module.load` program render against the loading program's sources
+
+- **Area:** Runtime modules, diagnostics
+- **Where:** `DynamicLoadWorkspace` in `src/loader.rs` (fresh `SourceMap` per workspace, so loaded source IDs restart at 0); `indexed_assertion_failed` in `src/runtime/eval/lowered_run/indexed_run/values.rs` (formats the expression text from `Evaluator::sources`, the entry program's map)
+- **Problem:** A failure inside a loaded module is reported with the entry file's name and line, and assertion messages quote the entry file's text at the loaded file's offsets. Reproduction: `loaded.xsh` holds `##! Fails at run time.` / `## Asserts a false condition.` / `export proc execute() -> Int { assert 1 > 2, "too small"; 1 }` (on separate lines); `main.xsh` declares `type Runner = module { export proc execute() -> Int }`, then `let loaded = module.load(p"DIR/loaded.xsh")?.require(Runner)?` and `print ${loaded.execute()}`. It prints `assertion failed: repos: too small` at `main.xsh:4:39`; it should print `assertion failed: 1 > 2: too small` at `loaded.xsh:5`.
+- **Recommendation:** Give loaded programs source IDs disjoint from the entry program's and register their sources where runtime errors are rendered, and format assertion text from the running frame's program (`execution.program().sources()`). Add a native test asserting the message and the reported file and line.
+- **Fix with:** error-model
+- **Effort:** M
+
+### XSH-194 · P2 · A callable-valued export required through a module contract fails to build
+
+- **Area:** Runtime modules, lowering
+- **Where:** module-call lowering (`ExprModuleCall`) in `src/runtime/eval/lower.rs`
+- **Problem:** `q.xsh` exports `export let quadrupler = quadruple` for a private `pure quadruple(value: Int) -> Int`. `type Quadrupling = module { export let quadrupler: pure(value: Int) -> Int }`, `let loaded = module.load(p"DIR/q.xsh")?.require(Quadrupling)?` and `print ${loaded.quadrupler(3)}` fails with `compact.indexed-build ... ground callable has no resolved lexical function identity for ExprModuleCall`; it should print `12`.
+- **Recommendation:** Lower a call through a required callable-valued export as a call of the exported value, or resolve its lexical identity from the loaded program's export, with a native test calling the export through the contract.
+- **Fix with:** none
+- **Effort:** S
+
+### XSH-195 · P3 · Records from an earlier `module.load` call into the reloaded program
+
+- **Area:** Runtime modules, semantics
+- **Where:** dynamic function table in `src/runtime/eval/lowered_run.rs` (entries are keyed by `dynamic:{key}` and overwritten on reload)
+- **Problem:** Loading a module, rewriting its file, and loading it again makes the first record's functions call the new program: with `version()` returning 1 and then 2, `print "${first.version()} ${second.version()}"` prints `2 2`. The SPEC says only that a changed file is loaded again, so whether an earlier record keeps its program is unspecified.
+- **Recommendation:** Keep each record bound to the program it was loaded from (`1 2`), since a record is a value and should not change after it is created; state the rule in the SPEC's module-loading section and add a native test.
+- **Fix with:** none
+- **Effort:** S
 
 ### XSH-145 · P2 · Credential and module paths come from the caller's environment in shipped code
 
