@@ -73,7 +73,7 @@ impl Mapper<'_> {
     }
 }
 
-pub(in crate::sema::check) fn module_signature(module: &mut UserModuleSig, rebaser: &mut SchemeCallableRebaser) -> Result<(), SchemeCallableError> {
+pub(in crate::sema::check) fn module_signature(module: &mut UserModuleSig, rebaser: &mut SchemeCallableRebaser, identities: &rustc_hash::FxHashMap<usize, Arc<crate::sema::schemes::TypeScheme>>) -> Result<(), SchemeCallableError> {
     let Some(source) = module.scheme_callables.as_ref().map(Arc::clone) else {
         if !module.values.is_empty() || !module.procs.is_empty() || !module.pures.is_empty() || !module.streams.is_empty()
             || module.resolved_types.values().any(Type::contains_scheme_callable)
@@ -84,7 +84,9 @@ pub(in crate::sema::check) fn module_signature(module: &mut UserModuleSig, rebas
     let mut map = Mapper { rebaser, source: &source };
     for ty in module.values.values_mut().chain(module.resolved_types.values_mut()) { map.ty(ty)?; }
     for signature in module.procs.values_mut().chain(module.pures.values_mut()).chain(module.streams.values_mut()) {
-        signature.scheme = map.rebaser.scheme(&signature.scheme, &source)?;
+        if !identities.get(&(Arc::as_ptr(&signature.scheme) as usize)).is_some_and(|scheme| Arc::ptr_eq(scheme, &signature.scheme)) {
+            signature.scheme = map.rebaser.scheme(&signature.scheme, &source)?;
+        }
     }
     for variant in module.tag_variants.values_mut() {
         for ty in &mut variant.field_types { map.ty(ty)?; }

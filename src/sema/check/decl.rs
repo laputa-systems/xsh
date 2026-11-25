@@ -2310,10 +2310,10 @@ impl Checker {
         &mut self,
         key: &str,
         alias: Option<Name>,
-        path: &[Name],
+        path_last: Option<Name>,
         span: Span,
     ) {
-        let Some(mut module) = self.user_modules.get(key).cloned() else {
+        let Some(source_module) = self.user_modules.get(key) else {
             self.error(
                 span,
                 "unknown user module",
@@ -2321,7 +2321,8 @@ impl Checker {
             );
             return;
         };
-        let Some(namespace) = alias.or_else(|| path.last().copied()) else {
+        let mut module = source_module.clone();
+        let Some(namespace) = alias.or(path_last) else {
             self.error(
                 span,
                 "empty module path",
@@ -2329,15 +2330,49 @@ impl Checker {
             );
             return;
         };
+        let identities = Arc::clone(&source_module.identity_schemes);
+        let identities = identities.get_or_init(|| {
+            source_module.procs.values().chain(source_module.pures.values()).chain(source_module.streams.values())
+                .filter_map(|signature| {
+                    let mut identity = true;
+                    let _ = signature.scheme.map_ground_types(|ty| {
+                        if identity {
+                            identity = crate::sema::scheme_callable::map_type_ids(ty, &mut |_| {
+                                Err(crate::sema::scheme_callable::SchemeCallableError::ForeignOwner)
+                            }).is_ok_and(|mapped| mapped == *ty);
+                        }
+                    });
+                    identity.then(|| (Arc::as_ptr(&signature.scheme) as usize, Arc::clone(&signature.scheme)))
+                }).collect()
+        });
         let mut relationships = crate::sema::scheme_callable::SchemeCallableRebaser::new(Arc::clone(&self.scheme_callables));
-        if let Err(error) = super::scheme_values::rebase::module_signature(&mut module, &mut relationships) {
+        if let Err(error) = super::scheme_values::rebase::module_signature(&mut module, &mut relationships, identities) {
             self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
             return;
         }
         let declaring_namespace = module.namespace;
         let module = qualify_imported_error_types(module, declaring_namespace);
+        let source_module = &self.user_modules[key];
+        let (cached_type, contains_callable) = source_module.module_type.get_or_init(|| {
+            let qualified = qualify_imported_error_types(source_module.clone(), source_module.namespace);
+            let ty = module_type_from_user_signature(&qualified);
+            let contains_callable = ty.contains_scheme_callable();
+            (ty, contains_callable)
+        });
+        let module_type = if *contains_callable {
+            let source = source_module.scheme_callables.as_ref().expect("imported module has a callable table");
+            match relationships.ty(cached_type, source) {
+                Ok(ty) => ty,
+                Err(error) => {
+                    self.error(span, &format!("module callable relationship is not owned: {error:?}"), crate::diagnostic::DiagnosticCode::CheckLocalInference);
+                    return;
+                }
+            }
+        } else {
+            cached_type.clone()
+        };
         self.import_user_module_types(key, Some(namespace), span, false);
-        let mut binding = Binding::new(module_type_from_user_signature(&module), false);
+        let mut binding = Binding::new(module_type, false);
         binding.static_namespace = true;
         self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
@@ -2361,7 +2396,7 @@ impl Checker {
         span: Span,
         diagnose: bool,
     ) {
-        let Some(module) = self.user_modules.get(key).cloned() else {
+        let Some(module) = self.user_modules.get(key) else {
             if diagnose {
                 self.error(
                     span,
@@ -2371,6 +2406,11 @@ impl Checker {
             }
             return;
         };
+        let declaring_namespace = module.namespace;
+        let resolved_types = module.resolved_types.clone();
+        let types = if alias.is_none() { module.types.clone() } else { BTreeMap::new() };
+        let tag_variants = if alias.is_some() { module.tag_variants.clone() } else { BTreeMap::new() };
+        let error_families = module.error_families.clone();
         if let Some(alias) = alias {
             if diagnose {
                 self.check_standard_module_shadow(&alias.as_str(), span);
@@ -2382,13 +2422,12 @@ impl Checker {
                     );
                 }
             }
-            self.type_namespaces
-                .insert(alias, module.resolved_types.clone());
-            for (name, info) in module.tag_variants {
+            self.type_namespaces.insert(alias, resolved_types);
+            for (name, info) in tag_variants {
                 self.tag_variants
                     .insert(Name::intern(format!("{alias}.{name}")), info);
             }
-            for (name, family) in module.error_families {
+            for (name, family) in error_families {
                 let qualified = Name::intern(format!("{alias}.{name}"));
                 for variant in family.variants.values() {
                     for facet in &variant.facets {
@@ -2396,7 +2435,6 @@ impl Checker {
                             .insert(Name::intern(format!("{alias}.{facet}")));
                     }
                 }
-                let declaring_namespace = module.namespace;
                 let identity = Name::intern(format!("{declaring_namespace}.{name}"));
                 self.error_family_identities.insert(qualified, identity);
                 self.error_families.insert(identity, family.clone());
@@ -2404,8 +2442,7 @@ impl Checker {
             }
             return;
         }
-        let resolved_types = module.resolved_types.clone();
-        for (name, body) in module.types {
+        for (name, body) in types {
             let body = match body {
                 TypeDefBody::TagUnion(_) => body,
                 _ => resolved_types
@@ -2465,7 +2502,7 @@ impl Checker {
                 self.type_defs.entry(name).or_insert(body);
             }
         }
-        for (name, family) in module.error_families {
+        for (name, family) in error_families {
             if diagnose && self.error_families.contains_key(&name) {
                 self.error(
                     span,
@@ -2649,10 +2686,10 @@ impl Checker {
         searched_candidates: Option<&[std::path::PathBuf]>,
         span: Span,
     ) {
-        let path_names: Vec<Name> = arena.arena.names(path).collect();
         if let Some(key) = resolved {
+            let path_last = arena.arena.names(path).last();
             if alias.is_none()
-                && let Some(last) = path_names.last()
+                && let Some(last) = path_last
                 && last.as_str().contains('-')
             {
                 let suggested = last.as_str().replace('-', "_");
@@ -2663,9 +2700,10 @@ impl Checker {
                 self.error(span, &message, DiagnosticCode::CheckHyphenatedModuleAlias);
                 return;
             }
-            self.import_user_module(key, alias, &path_names, span);
+            self.import_user_module(key, alias, path_last, span);
             return;
         }
+        let path_names: Vec<Name> = arena.arena.names(path).collect();
         if path_names.len() != 1 || api_spec().module(&path_names[0].as_str()).is_none() {
             let mut diagnostic = Diagnostic::error("only standard modules can be imported")
                 .with_code(DiagnosticCode::CheckUnknownModule)
