@@ -4778,7 +4778,7 @@ impl TypeConstraints {
         ty: &Type,
     ) -> Result<FxHashSet<TypeVariableId>, ConstraintResolutionError> {
         let mut variables = FxHashSet::default();
-        let mut pending = vec![(ty, 0)];
+        let mut pending = TypeWorklist::new(ty, 0);
         while let Some((ty, depth)) = pending.pop() {
             if depth > MAX_TYPE_DEPTH {
                 return Err(ConstraintResolutionError::TypeDepth);
@@ -4791,7 +4791,7 @@ impl TypeConstraints {
                     };
                     variables.insert(variable.canonical);
                 }
-                _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
+                _ => pending.push_children(ty, depth),
             }
         }
         Ok(variables)
@@ -5335,6 +5335,39 @@ enum AnchorEvidence {
     CheckedNullArgument,
 }
 
+struct TypeWorklist<'a> {
+    inline: [Option<(&'a Type, usize)>; 32],
+    count: usize,
+    overflow: Vec<(&'a Type, usize)>,
+}
+
+impl<'a> TypeWorklist<'a> {
+    fn new(ty: &'a Type, depth: usize) -> Self {
+        let mut inline = [None; 32];
+        inline[0] = Some((ty, depth));
+        Self { inline, count: 1, overflow: Vec::new() }
+    }
+
+    fn pop(&mut self) -> Option<(&'a Type, usize)> {
+        if let Some(node) = self.overflow.pop() { return Some(node); }
+        if self.count == 0 { return None; }
+        self.count -= 1;
+        Some(self.inline[self.count].take().expect("occupied worklist slot"))
+    }
+
+    fn push_children(&mut self, ty: &'a Type, depth: usize) {
+        ty.for_each_child(|child| {
+            let node = (child, depth + 1);
+            if self.count < self.inline.len() && self.overflow.is_empty() {
+                self.inline[self.count] = Some(node);
+                self.count += 1;
+            } else {
+                self.overflow.push(node);
+            }
+        });
+    }
+}
+
 fn has_anchor(
     ty: &Type,
     evidence: AnchorEvidence,
@@ -5343,7 +5376,7 @@ fn has_anchor(
         return Ok(false);
     }
     let mut saw_null = false;
-    let mut pending = vec![(ty, 0)];
+    let mut pending = TypeWorklist::new(ty, 0);
     while let Some((ty, depth)) = pending.pop() {
         if depth > MAX_TYPE_DEPTH {
             return Err(ConstraintResolutionError::TypeDepth);
@@ -5355,14 +5388,14 @@ fn has_anchor(
             Type::Null if evidence == AnchorEvidence::Inference => return Ok(false),
             Type::Null => saw_null = true,
             Type::Record(fields) if fields.is_empty() && evidence != AnchorEvidence::CheckedContext => return Ok(false),
-            _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
+            _ => pending.push_children(ty, depth),
         }
     }
     Ok(evidence != AnchorEvidence::CheckedNullArgument || saw_null)
 }
 
 fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionError> {
-    let mut pending = vec![(ty, depth)];
+    let mut pending = TypeWorklist::new(ty, depth);
     while let Some((ty, depth)) = pending.pop() {
         if depth > MAX_TYPE_DEPTH {
             return Err(ConstraintResolutionError::TypeDepth);
@@ -5376,7 +5409,7 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
             if module_has_inference(exports, depth)? { return Ok(true); }
             continue;
         }
-        ty.for_each_child(|child| pending.push((child, depth + 1)));
+        pending.push_children(ty, depth);
     }
     Ok(false)
 }
@@ -5452,6 +5485,17 @@ mod tests {
                 effects: crate::sema::types::CallableEffects::finite([]),
             },
         }))
+    }
+
+    #[test]
+    fn variable_ids_handles_wide_and_deep_types() {
+        let mut constraints = TypeConstraints::default();
+        let members: Vec<_> = (0..64).map(|index| constraints.fresh(span(index))).collect();
+        let expected: FxHashSet<_> = members.iter().map(variable_id).collect();
+        assert_eq!(constraints.variable_ids(&Type::Union(members)).unwrap(), expected);
+        let mut too_deep = Type::Int;
+        for _ in 0..=MAX_TYPE_DEPTH { too_deep = Type::List(Box::new(too_deep)); }
+        assert_eq!(constraints.variable_ids(&too_deep), Err(ConstraintResolutionError::TypeDepth));
     }
 
     #[test]
