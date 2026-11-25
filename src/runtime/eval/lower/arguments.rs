@@ -881,6 +881,8 @@ mod named_spread_lowering_tests {
             scratch: std::rc::Rc::new(std::cell::RefCell::new(
                 super::super::BuildScratch::default(),
             )),
+            global_bindings: None,
+            module_exports: Default::default(),
         };
         crate::mem_track::enable_tracking();
         crate::mem_track::begin_stage();

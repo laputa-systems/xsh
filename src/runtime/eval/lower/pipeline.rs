@@ -1108,6 +1108,8 @@ mod tests {
             stdlib_linkage: super::super::StdlibLowerLinkage::Local,
             function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scratch: std::rc::Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
+            global_bindings: None,
+            module_exports: Default::default(),
         };
         let mut slots = SlotScope::default();
         let outer_binding = crate::sema::check::BindingId::args();

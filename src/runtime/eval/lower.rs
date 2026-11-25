@@ -625,6 +625,8 @@ pub(in crate::runtime::eval) fn probe_compact_lower_constructed_bodies_in_scope(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(super::ProducerDemand::Absent), ..BuildScratch::default() })),
+        global_bindings: None,
+        module_exports: Default::default(),
     };
     probe.probe_program();
     probe.output
@@ -748,6 +750,16 @@ pub(super) fn lower_compact_function_units_into(
     // cursor per module produces every function's prefix in a single pass. A
     // fresh scan per function would make preparation quadratic in a module's
     // size.
+    let mut global_bindings: FxHashMap<Option<Name>, Vec<_>> = index.defs.iter()
+        .map(|function| (function.namespace, Vec::new()))
+        .collect();
+    for (id, declaration) in &declarations.bodies.resolved_bindings.declarations {
+        if *id == BindingId::args() {
+            for bindings in global_bindings.values_mut() { bindings.push((id, declaration)); }
+        } else if declaration.global {
+            if let Some(bindings) = global_bindings.get_mut(&declaration.namespace) { bindings.push((id, declaration)); }
+        }
+    }
     let mut recorder = CompactLowerConstructProbe {
         program,
         scope: Rc::clone(&scope),
@@ -764,8 +776,11 @@ pub(super) fn lower_compact_function_units_into(
         stdlib_linkage,
         function_defs: Rc::clone(&function_defs),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
+        global_bindings: None,
+        module_exports: Default::default(),
     };
     let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
+    let mut scratch = Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() }));
     for function in index.defs.iter().copied() {
         recorder.current_namespace = function.namespace;
         let prefix = prefixes
@@ -795,7 +810,9 @@ pub(super) fn lower_compact_function_units_into(
             last_blocker_detail: None,
             stdlib_linkage,
             function_defs: Rc::clone(&function_defs),
-            scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
+            scratch: Rc::clone(&scratch),
+            global_bindings: Some(&global_bindings),
+            module_exports: Default::default(),
         };
         let (scc_member_count, scc_group) = index.scc_metadata(&function);
         let unit = probe.lower_function_unit(
@@ -805,8 +822,84 @@ pub(super) fn lower_compact_function_units_into(
             scc_group,
         );
         emit(unit)?;
+        drop(probe);
+        if let Some(scratch) = Rc::get_mut(&mut scratch) {
+            clear_function_scratch(scratch.get_mut());
+        } else {
+            scratch = Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() }));
+        }
     }
     Ok(())
+}
+
+fn clear_function_scratch(scratch: &mut BuildScratch) {
+    let BuildScratch {
+        producer_demand: _,
+        prepared_schemas,
+        prepared_constants,
+        expressions,
+        expression_spans,
+        checked_expr_types,
+        checked_call_targets,
+        call_instantiations,
+        scheme_callable_calls,
+        scheme_application_calls,
+        scheme_application_returns,
+        scheme_completion_sources,
+        scheme_noncompleting,
+        scheme_constructors,
+        scheme_operations,
+        scheme_methods,
+        scheme_wrappers,
+        checked_call_result_types,
+        registered_calls,
+        non_int_binary_expressions,
+        int_record_slot_field_reads,
+        int_list_slot_index_reads,
+        statements,
+        statement_spans,
+        resource_transfers,
+        patterns,
+        checked_pattern_variants,
+        ints,
+        bools,
+        bool_spans,
+        top_statements,
+        scheme_guards: super::SchemeGuardBuildFacts { expressions: guard_expressions, statements: guard_statements, sites: guard_sites },
+    } = scratch;
+    prepared_schemas.clear();
+    prepared_constants.clear();
+    expressions.clear();
+    expression_spans.clear();
+    checked_expr_types.clear();
+    checked_call_targets.clear();
+    call_instantiations.clear();
+    scheme_callable_calls.clear();
+    scheme_application_calls.clear();
+    scheme_application_returns.clear();
+    scheme_completion_sources.clear();
+    scheme_noncompleting.clear();
+    scheme_constructors.clear();
+    scheme_operations.clear();
+    scheme_methods.clear();
+    scheme_wrappers.clear();
+    checked_call_result_types.clear();
+    registered_calls.clear();
+    non_int_binary_expressions.clear();
+    int_record_slot_field_reads.clear();
+    int_list_slot_index_reads.clear();
+    statements.clear();
+    statement_spans.clear();
+    resource_transfers.clear();
+    patterns.clear();
+    checked_pattern_variants.clear();
+    ints.clear();
+    bools.clear();
+    bool_spans.clear();
+    top_statements.clear();
+    guard_expressions.clear();
+    guard_statements.clear();
+    guard_sites.clear();
 }
 
 pub(super) fn lower_compact_top_level_program_with_probe(
@@ -845,6 +938,8 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
+        global_bindings: None,
+        module_exports: Default::default(),
     };
     let root = program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -884,6 +979,8 @@ fn compact_top_level_known(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        global_bindings: None,
+        module_exports: Default::default(),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -919,6 +1016,8 @@ fn compact_function_top_level_known(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        global_bindings: None,
+        module_exports: Default::default(),
     };
     let mut prefix = CompactTopLevelPrefix::for_namespace(program, scope, declarations, namespace);
     prefix.advance_to_recording(&probe, function_id);
@@ -1495,6 +1594,8 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     /// rebuilding it per function makes preparation quadratic in program size.
     function_defs: Rc<RefCell<Option<Rc<CompactFunctionIndex>>>>,
     scratch: Rc<RefCell<BuildScratch>>,
+    global_bindings: Option<&'a FxHashMap<Option<Name>, Vec<(&'a BindingId, &'a crate::sema::check::BindingDeclaration)>>>,
+    module_exports: Rc<RefCell<FxHashMap<String, Option<Vec<LoweredModuleExport>>>>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2389,7 +2490,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>, within: Span) -> LoweredTopLevelSlots {
-        let mut bindings = self.bodies.resolved_bindings.declarations.iter()
+        let indexed = self.global_bindings.and_then(|bindings| bindings.get(&self.current_namespace));
+        let mut bindings = indexed.into_iter().flatten().copied()
+            .chain(indexed.is_none().then(|| self.bodies.resolved_bindings.declarations.iter()).into_iter().flatten())
             .filter(|(id, declaration)| {
                 (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace)) && reads.is_none_or(|reads| reads.contains(id))
                     && slots.resolve_binding(**id).is_none()
@@ -6194,14 +6297,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let key = use_stmt.resolved.clone()?;
                 let path = self.program.arena.names(use_stmt.path).collect::<Vec<_>>();
                 let namespace = compact_use_import_namespace(self.program, use_id)?;
-                let exports = compact_module_exports_for_use(
-                    self.program,
-                    key.as_ref(),
-                    namespace,
-                    self.qualified_schemes,
-                    &self.bodies.resolved_bindings,
-                    &self.scope,
-                )?;
+                let exports = self.module_exports.borrow_mut().entry(key.to_string()).or_insert_with(|| {
+                    compact_module_exports_for_use(
+                        self.program,
+                        key.as_ref(),
+                        namespace,
+                        self.qualified_schemes,
+                        &self.bodies.resolved_bindings,
+                        &self.scope,
+                    )
+                }).clone()?;
                 let checked_type =
                     self.checked_import_module_type(id, namespace, key.as_ref());
                 let module = self.scope.module_with_key(key.as_ref())?;
@@ -6233,6 +6338,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         stdlib_linkage: StdlibLowerLinkage::Local,
                         function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
+                        global_bindings: self.global_bindings,
+                        module_exports: Rc::clone(&self.module_exports),
                     };
                     probe.lower_program_statements(&module_statement_ids)
                 };
@@ -11113,6 +11220,8 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             stdlib_linkage: super::StdlibLowerLinkage::Local,
             function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scratch: std::rc::Rc::new(std::cell::RefCell::new(super::BuildScratch::default())),
+            global_bindings: None,
+            module_exports: Default::default(),
         };
         checked.parsed.arena.symbol_owner().with_current(|| {
             assert!(probe.lower_function_with_blocker(caller, crate::sema::types::CallableKind::Pure).is_err());
