@@ -8034,7 +8034,7 @@ impl<'a> ProducerProof<'a> {
             self.expression(decoder.owner, receiver, Arc::clone(&payload), false);
             payload
         } else { receiver_type };
-        let signatures = FullDecoder::registered_method_signatures(receiver_type.as_ref(), name)?.ok_or_else(|| IrVerifyError::new("ground method has no registered parameter contract"))?;
+        let signatures = decoder.method_signatures(receiver_type.as_ref(), name)?.ok_or_else(|| IrVerifyError::new("ground method has no registered parameter contract"))?;
         let mut selected = None;
         for signature in signatures {
             let first_parameter = if signature.op == super::super::RuntimeOp::ProcessHandleCancel

@@ -640,6 +640,36 @@ enum CheckedRecordFieldWriter {
 /// Shares bounded target lookup between checked references and module exports.
 struct FunctionSignatureIndex {
     functions: FxHashMap<(Option<Name>, Name), FunctionIdentitySignatures>,
+    builtin_methods: BuiltinMethodSignatures,
+}
+
+#[derive(Default)]
+struct BuiltinMethodSignatures {
+    by_name: RefCell<FxHashMap<Box<str>, Vec<(Type, Option<Vec<crate::modules::signature::ModuleFnSig>>)>>>,
+}
+
+impl BuiltinMethodSignatures {
+    fn signatures(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Vec<crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        if let Some(instantiated) = self
+            .by_name
+            .borrow()
+            .get(name)
+            .and_then(|receivers| receivers.iter().find(|(receiver, _)| receiver == receiver_type))
+        {
+            return Ok(instantiated.1.clone());
+        }
+        let signatures = FullDecoder::registered_method_signatures(receiver_type, name)?;
+        self.by_name
+            .borrow_mut()
+            .entry(name.into())
+            .or_default()
+            .push((receiver_type.clone(), signatures.clone()));
+        Ok(signatures)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -674,7 +704,7 @@ impl FunctionSignatureIndex {
                 | FunctionSignatureLookup::Ambiguous => FunctionSignatureLookup::Ambiguous,
             };
         }
-        Ok(Self { functions })
+        Ok(Self { functions, builtin_methods: BuiltinMethodSignatures::default() })
     }
 
     fn module_export(
@@ -3097,6 +3127,7 @@ impl FullProgram {
             binding_identity_stack: OnceCell::new(),
             binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
+            decoded_views: DecodedViews::default(),
             function_signature_index: Some(function_signature_index.clone()),
             return_analysis: RefCell::default(),
             producer_demand: producer_index.demand(),
@@ -3490,16 +3521,15 @@ impl FullProgram {
                 let schema::DriverPayloadView::LetRecord { target: output_target, .. } = view.decode_payload(&execution, view.payload()?)? else {
                     return Err(IrVerifyError::new("driver record output payload is invalid"));
                 };
-                let output_target = if matches!(output_target, decode::CompTargetView::Discard) {
-                    decoder.driver_guard_source(source)?.0
+                let mut output_slots = Vec::new();
+                if matches!(output_target, decode::CompTargetView::Discard) {
+                    decoder.comp_target_written_slots(decoder.driver_guard_source(source)?.0, &mut output_slots)?;
                 } else {
                     if !matches!(output_target, decode::CompTargetView::Record { .. }) {
                         return Err(IrVerifyError::new("driver record target is not a record destructuring"));
                     }
-                    output_target
-                };
-                let mut output_slots = Vec::new();
-                decoder.comp_target_written_slots(output_target, &mut output_slots)?;
+                    decoder.comp_target_written_slots(output_target, &mut output_slots)?;
+                }
                 output_slots.sort_unstable();
                 if output_slots != expected_by_slot.keys().copied().collect::<Vec<_>>() {
                     return Err(IrVerifyError::new("driver record target does not match its payload fields"));
@@ -7073,6 +7103,7 @@ impl<'p> FullExecution<'p> {
             binding_identity_stack: OnceCell::new(),
             binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
+            decoded_views: DecodedViews::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
             producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -7470,11 +7501,18 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     /// writers the pass does not compare (read-modify-write forms, `With`
     /// captures, fail-closed scalar statements) never enter it.
     proven_callable_writers: RefCell<BTreeSet<usize>>,
+    decoded_views: DecodedViews<'a>,
     function_signature_index: Option<Arc<FunctionSignatureIndex>>,
     return_analysis: RefCell<Option<ReturnAnalysisSource>>,
     producer_demand: crate::runtime::eval::ProducerDemand,
     prepared_constant_work: Cell<usize>,
     verified: bool,
+}
+
+#[derive(Default)]
+struct DecodedViews<'a> {
+    expressions: RefCell<FxHashMap<usize, schema::ExprView<'a>>>,
+    statements: RefCell<FxHashMap<usize, schema::StmtView<'a>>>,
 }
 
 enum CheckedBindingWriterType {
@@ -7539,10 +7577,22 @@ fn owned_block_counts(store: &FullStore) -> FxHashMap<u32, usize> {
 }
 
 impl<'a> FullDecoder<'a> {
-    fn expression_view<'e>(
-        &'e self,
+    fn expression_view(
+        &self,
         instruction: usize,
-    ) -> Result<schema::ExprView<'e>, IrVerifyError> {
+    ) -> Result<schema::ExprView<'a>, IrVerifyError> {
+        if let Some(view) = self.decoded_views.expressions.borrow().get(&instruction) {
+            return Ok(view.clone());
+        }
+        let view = self.decode_expression_view(instruction)?;
+        self.decoded_views.expressions.borrow_mut().insert(instruction, view.clone());
+        Ok(view)
+    }
+
+    fn decode_expression_view(
+        &self,
+        instruction: usize,
+    ) -> Result<schema::ExprView<'a>, IrVerifyError> {
         let tag = *self
             .store
             .tags
@@ -7582,10 +7632,22 @@ impl<'a> FullDecoder<'a> {
         Ok(signature)
     }
 
-    fn statement_view<'e>(
-        &'e self,
+    fn statement_view(
+        &self,
         instruction: usize,
-    ) -> Result<schema::StmtView<'e>, IrVerifyError> {
+    ) -> Result<schema::StmtView<'a>, IrVerifyError> {
+        if let Some(view) = self.decoded_views.statements.borrow().get(&instruction) {
+            return Ok(view.clone());
+        }
+        let view = self.decode_statement_view(instruction)?;
+        self.decoded_views.statements.borrow_mut().insert(instruction, view.clone());
+        Ok(view)
+    }
+
+    fn decode_statement_view(
+        &self,
+        instruction: usize,
+    ) -> Result<schema::StmtView<'a>, IrVerifyError> {
         let tag = *self
             .store
             .tags
@@ -7844,7 +7906,7 @@ impl<'a> FullDecoder<'a> {
     }
 
 
-    fn verify_typed_call_shape(&self, payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+    fn verify_typed_call_shape(&self, payload: FullCursor<'a>) -> Result<(), IrVerifyError> {
         let schema::ExprView::TypedCall {
             kind,
             signature,
@@ -8482,6 +8544,7 @@ impl<'a> FullDecoder<'a> {
             binding_identity_stack: OnceCell::from(Rc::clone(self.binding_identity_stack())),
             binding_identity_types: OnceCell::from(Rc::clone(self.binding_identity_types())),
             proven_callable_writers: RefCell::default(),
+            decoded_views: DecodedViews::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
             producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -8636,7 +8699,7 @@ impl<'a> FullDecoder<'a> {
     fn checked_driver_record_output_types(
         &self,
         source: usize,
-        target: decode::CompTargetView<'a>,
+        target: decode::CompTargetView<'_>,
     ) -> Result<Option<BTreeMap<usize, Type>>, IrVerifyError> {
         if !matches!(&target, decode::CompTargetView::Discard) {
             return self.derive_checked_expression_type(source)?
@@ -8662,10 +8725,10 @@ impl<'a> FullDecoder<'a> {
         success_type.map(|success_type| Self::checked_target_slot_types(target, &success_type)).transpose()
     }
 
-    fn driver_guard_source<'e>(
-        &'e self,
+    fn driver_guard_source(
+        &self,
         source: usize,
-    ) -> Result<(decode::CompTargetView<'e>, usize, bool), IrVerifyError> {
+    ) -> Result<(decode::CompTargetView<'a>, usize, bool), IrVerifyError> {
         let schema::ExprView::ValueBlock { mut body, .. } = self.expression_view(source)? else {
             return Err(IrVerifyError::new("driver guard source is not a value block"));
         };
@@ -9663,6 +9726,7 @@ impl<'a> FullDecoder<'a> {
             binding_identity_stack: OnceCell::new(),
             binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
+            decoded_views: DecodedViews::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
             producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -11774,11 +11838,28 @@ impl<'a> FullDecoder<'a> {
         Ok((!signatures.is_empty()).then_some(signatures))
     }
 
+    fn method_signatures(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Vec<crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        match &self.function_signature_index {
+            Some(index) => index.builtin_methods.signatures(receiver_type, name),
+            None => Self::registered_method_signatures(receiver_type, name),
+        }
+    }
+
     fn registered_method_return_type(
         receiver_type: &Type,
         name: &str,
     ) -> Result<Option<Type>, IrVerifyError> {
-        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+        Self::registered_return_type(Self::registered_method_signatures(receiver_type, name)?)
+    }
+
+    fn registered_return_type(
+        signatures: Option<Vec<crate::modules::signature::ModuleFnSig>>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(signatures) = signatures else {
             return Ok(None);
         };
         let mut return_type = None;
@@ -11802,7 +11883,7 @@ impl<'a> FullDecoder<'a> {
         name: &str,
         args: &[usize],
     ) -> Result<(), IrVerifyError> {
-        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+        let Some(signatures) = self.method_signatures(receiver_type, name)? else {
             return Err(IrVerifyError::new(
                 "checked method has no exact parameter signature",
             ));
@@ -11867,7 +11948,7 @@ impl<'a> FullDecoder<'a> {
         name: &str,
         args: &[usize],
     ) -> Result<Option<Type>, IrVerifyError> {
-        let Some(registered) = Self::registered_method_return_type(receiver_type, name)? else {
+        let Some(registered) = Self::registered_return_type(self.method_signatures(receiver_type, name)?)? else {
             return Ok(None);
         };
         if name != "get" || args.len() != 1 {
@@ -20071,6 +20152,7 @@ impl FullVerifier {
                 binding_identity_stack: OnceCell::new(),
                 binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
+                decoded_views: DecodedViews::default(),
                 function_signature_index: Some(function_signature_index.clone()),
                 return_analysis: RefCell::default(),
                 producer_demand: producer_index.demand(),
@@ -22711,6 +22793,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         binding_identity_stack: OnceCell::new(),
         binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
+        decoded_views: DecodedViews::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
         producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -37418,6 +37501,7 @@ assert results == [4]
             binding_identity_stack: OnceCell::new(),
             binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
+            decoded_views: DecodedViews::default(),
             function_signature_index: Some(Arc::new(program.symbol_owner().with_current(|| {
                 FunctionSignatureIndex::build(&program.store)
                     .expect("fixture signatures are valid")
@@ -42307,6 +42391,7 @@ pure foreign(payload, count: Int) {
                 binding_identity_stack: OnceCell::new(),
                 binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
+                decoded_views: DecodedViews::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
                 producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -42374,6 +42459,7 @@ pure foreign(payload, count: Int) {
                 binding_identity_stack: OnceCell::new(),
                 binding_identity_types: OnceCell::new(),
                 proven_callable_writers: RefCell::default(),
+                decoded_views: DecodedViews::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
                 producer_demand: crate::runtime::eval::ProducerDemand::Absent,

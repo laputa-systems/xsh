@@ -3483,6 +3483,7 @@ fn verify_call_instantiations(
     function_signatures: &Arc<super::FunctionSignatureIndex>,
     producer_proof: &mut producers::ProducerProof<'_>,
 ) -> Result<(), IrVerifyError> {
+    let decoders = InstructionDecoders::new(store, function_signatures);
     let mut target_by_instruction = BTreeMap::new();
     for fact in &store.checked_call_targets {
         if target_by_instruction.insert(fact.instruction, fact.function).is_some() {
@@ -3494,7 +3495,7 @@ fn verify_call_instantiations(
     for call in &store.scheme_callable_calls {
         if previous_value_call.is_some_and(|previous| previous >= call.instruction) || target_by_instruction.contains_key(&call.instruction) { return Err(IrVerifyError::new("scheme callable call authority is duplicated")); }
         previous_value_call = Some(call.instruction);
-        let decoder = decoder_for_instruction(store, call.instruction as usize, function_signatures)?;
+        let decoder = decoders.decoder(call.instruction as usize)?;
         let callee = match decoder.expression_view(call.instruction as usize)? {
             schema::ExprView::DynamicCall { callee, .. } => callee,
             schema::ExprView::CheckedValue { value, check: ValueCheckView::Ground(check), .. } if check.schema.is_none() => value,
@@ -3615,7 +3616,7 @@ fn verify_call_instantiations(
                 caller_scope,
                 &substitution,
                 &mut budget,
-                function_signatures,
+                &decoders,
             )?;
             let result = scheme_body_fact_type(
                 store,
@@ -3675,7 +3676,7 @@ fn verify_call_instantiations(
                 scope,
                 &substitution,
                 &mut materialization,
-                function_signatures,
+                &decoders,
                 producer_proof,
                 guard_evidence,
             )?);
@@ -3721,7 +3722,7 @@ fn verify_call_instantiations(
         ) {
             continue;
         }
-        let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
+        let decoder = decoders.decoder(instruction)?;
         let target = match decoder.expression_view(instruction)? {
             schema::ExprView::Call { function, .. }
             | schema::ExprView::DirectPureCall { function, .. } => function.id,
@@ -3747,7 +3748,7 @@ fn verify_call_instantiations(
             }
         }
     }
-    materializations::verify(store, scopes, function_signatures, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage)?;
+    materializations::verify(store, scopes, &decoders, &mut type_argument_coverage, &mut row_argument_coverage, &mut row_field_coverage)?;
     if instantiation_coverage.iter().any(|covered| !covered)
         || type_argument_coverage.iter().any(|covered| !covered)
         || row_argument_coverage.iter().any(|covered| !covered)
@@ -4613,9 +4614,9 @@ fn verify_symbolic_call_arguments(
     caller_scope: &SchemeScope,
     substitution: &SymbolicCallSubstitution,
     budget: &mut SchemeInstantiationBudget,
-    function_signatures: &Arc<super::FunctionSignatureIndex>,
+    decoders: &InstructionDecoders<'_>,
 ) -> Result<(), IrVerifyError> {
-    let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
+    let decoder = decoders.decoder(instruction)?;
     let args = match decoder.expression_view(instruction)? {
         schema::ExprView::Call { args, .. }
         | schema::ExprView::DirectPureCall { args, .. }
@@ -4871,11 +4872,11 @@ fn verify_instantiated_call_arguments(
     scope: &SchemeScope,
     substitution: &CallSubstitution,
     materialization: &mut SchemeInstantiationBudget,
-    function_signatures: &Arc<super::FunctionSignatureIndex>,
+    decoders: &InstructionDecoders<'_>,
     producer_proof: &mut producers::ProducerProof<'_>,
     guard_evidence: SchemeBinderEvidence,
 ) -> Result<Vec<producers::GroundArgumentRequest>, IrVerifyError> {
-    let decoder = decoder_for_instruction(store, instruction, function_signatures)?;
+    let decoder = decoders.decoder(instruction)?;
     let view = decoder.expression_view(instruction)?;
     let args = match view {
         schema::ExprView::Call { args, .. }
@@ -5323,9 +5324,9 @@ enum ArgumentAliasCheck {
     Declared(TypeId),
 }
 
-fn checked_argument_type(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_argument_type<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     mut use_instruction: usize,
     mut instruction: usize,
     materialization: &mut SchemeInstantiationBudget,
@@ -5515,9 +5516,9 @@ fn checked_argument_type(
     Ok(Some(actual))
 }
 
-fn checked_record_argument_type(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_record_argument_type<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     instruction: usize,
     expected: &Type,
     materialization: &mut SchemeInstantiationBudget,
@@ -5664,9 +5665,9 @@ fn closed_literal_argument_type(actual: CheckedArgumentType, materialization: &m
     }
 }
 
-fn checked_argument_type_inner(
-    store: &FullStore,
-    decoder: &FullDecoder<'_>,
+fn checked_argument_type_inner<'store>(
+    store: &'store FullStore,
+    decoder: &FullDecoder<'store>,
     use_instruction: usize,
     instruction: usize,
     materialization: &mut SchemeInstantiationBudget,
@@ -7132,6 +7133,53 @@ fn instantiate_scheme_type_inner(
     Ok(ty)
 }
 
+#[derive(Clone, Copy)]
+enum InstructionOwner {
+    Function(usize),
+    Driver(usize),
+}
+
+struct InstructionDecoders<'store> {
+    store: &'store FullStore,
+    function_signatures: Arc<super::FunctionSignatureIndex>,
+    owners: Vec<Option<InstructionOwner>>,
+}
+
+impl<'store> InstructionDecoders<'store> {
+    fn new(store: &'store FullStore, function_signatures: &Arc<super::FunctionSignatureIndex>) -> Self {
+        let mut owners = vec![None; store.tags.len()];
+        let mut resolve = |range: std::ops::Range<usize>, owner: InstructionOwner| {
+            for slot in &mut owners[range] {
+                slot.get_or_insert(owner);
+            }
+        };
+        let functions_resolved = (0..store.functions.len()).all(|index| match store.function_instruction_range(index) {
+            Ok(range) => {
+                resolve(range, InstructionOwner::Function(index));
+                true
+            }
+            Err(_) => false,
+        });
+        if functions_resolved {
+            for index in 0..store.driver_steps.len() {
+                let Ok(range) = store.driver_instruction_range(index) else { break };
+                resolve(range, InstructionOwner::Driver(index));
+            }
+        }
+        Self { store, function_signatures: Arc::clone(function_signatures), owners }
+    }
+
+    fn decoder(&self, instruction: usize) -> Result<FullDecoder<'store>, IrVerifyError> {
+        let mut decoder = match self.owners.get(instruction).copied().flatten() {
+            Some(InstructionOwner::Function(index)) => decoder_for_function(self.store, index)?,
+            Some(InstructionOwner::Driver(index)) => decoder_for_driver_step(self.store, index)?,
+            None => return decoder_for_instruction(self.store, instruction, &self.function_signatures),
+        };
+        decoder.function_signature_index = Some(Arc::clone(&self.function_signatures));
+        Ok(decoder)
+    }
+}
+
 fn decoder_for_instruction<'store>(
     store: &'store FullStore,
     instruction: usize,
@@ -7180,6 +7228,7 @@ pub(super) fn decoder_for_driver_step(
         binding_identity_stack: OnceCell::new(),
         binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
+        decoded_views: super::DecodedViews::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
         producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -7210,6 +7259,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
         binding_identity_stack: OnceCell::new(),
         binding_identity_types: OnceCell::new(),
         proven_callable_writers: RefCell::default(),
+        decoded_views: super::DecodedViews::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
         producer_demand: crate::runtime::eval::ProducerDemand::Absent,

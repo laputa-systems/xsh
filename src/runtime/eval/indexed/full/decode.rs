@@ -71,6 +71,7 @@ impl<'a> DecodeContext<'a> {
             binding_identity_stack: OnceCell::new(),
             binding_identity_types: OnceCell::new(),
             proven_callable_writers: RefCell::default(),
+            decoded_views: super::DecodedViews::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
             producer_demand: crate::runtime::eval::ProducerDemand::Absent,
@@ -456,6 +457,12 @@ pub(in crate::runtime::eval) struct ListView<'a, T> {
     element: PhantomData<T>,
 }
 
+impl<T> Clone for ListView<'_, T> {
+    fn clone(&self) -> Self {
+        ListView { context: self.context, block: self.block, input: self.input, remaining: self.remaining, element: PhantomData }
+    }
+}
+
 /// A typed list cursor can resume only against the store and block it came from.
 pub(in crate::runtime::eval) struct ListPosition<T> {
     store: usize,
@@ -717,6 +724,11 @@ pub(in crate::runtime::eval) struct InlineList<'a, T> {
     remaining: usize,
     element: PhantomData<T>,
 }
+impl<T> Clone for InlineList<'_, T> {
+    fn clone(&self) -> Self {
+        InlineList { context: self.context, input: self.input, remaining: self.remaining, element: PhantomData }
+    }
+}
 impl<'a, T: BorrowCodec> InlineList<'a, T> {
     fn borrow(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
     -> Result<Self, IrVerifyError> {
@@ -844,6 +856,7 @@ macro_rules! struct_schema {
     (@define $ty:ident => $view:ident { $($field:ident: $field_ty:ty),* $(,)? }
      $(with { $($omitted_field:ident: $omitted_value:expr),* $(,)? })?
      $(validate |$decoder:ident, $value:ident| $validation:block)?) => {
+        #[derive(Clone)]
         pub(in crate::runtime::eval) struct $view<'a> {
             $(pub(in crate::runtime::eval) $field: <$field_ty as BorrowCodec>::View<'a>,)*
             program: PhantomData<&'a FullStore>,
@@ -927,6 +940,7 @@ macro_rules! enum_schema {
         }
     ) => {
         $(#[$view_attribute])*
+        #[derive(Clone)]
         pub(in crate::runtime::eval) enum $view<'a> {
             $(
                 $variant $(($(<$tuple_ty as BorrowCodec>::View<'a>),*))?
@@ -1067,6 +1081,7 @@ impl TryFrom<u32> for ValueCheckTag {
     }
 }
 
+#[derive(Clone)]
 pub(in crate::runtime::eval) enum ValueCheckView<'a> {
     MembershipKey(u32),
     MapKey(u32),
