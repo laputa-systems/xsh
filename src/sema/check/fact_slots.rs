@@ -48,6 +48,7 @@ struct TypeFlags {
 #[derive(Clone, Debug, Default)]
 struct TypeTable {
     entries: Vec<(super::Type, TypeFlags)>,
+    scalars: [Option<TypeId>; 22],
     by_hash: FxHashMap<u64, Vec<TypeId>>,
 }
 
@@ -58,6 +59,31 @@ impl TypeTable {
 
     fn intern(&mut self, ty: super::Type) -> TypeId {
         use std::hash::{Hash, Hasher};
+        let scalar = match &ty {
+            super::Type::Any => Some(0), super::Type::Unknown => Some(1), super::Type::Invalid => Some(2),
+            super::Type::Null => Some(3), super::Type::Bool => Some(4), super::Type::Int => Some(5),
+            super::Type::UInt => Some(6), super::Type::Float => Some(7), super::Type::Duration => Some(8),
+            super::Type::Str => Some(9), super::Type::Bytes => Some(10), super::Type::Digest => Some(11),
+            super::Type::Regex => Some(12), super::Type::Path => Some(13), super::Type::ErasedRecord => Some(14),
+            super::Type::DynamicModule => Some(15), super::Type::Status => Some(16), super::Type::EnvPathList => Some(17),
+            super::Type::Error => Some(18), super::Type::ProcessError => Some(19), super::Type::Command => Some(20),
+            super::Type::Unit => Some(21),
+            _ => None,
+        };
+        if let Some(index) = scalar {
+            if let Some(id) = self.scalars[index] { return id; }
+            let flags = TypeFlags {
+                inference: false,
+                recovery: matches!(ty, super::Type::Unknown | super::Type::Invalid),
+                any: matches!(ty, super::Type::Any),
+                scheme_callable: false,
+                deep: false,
+            };
+            let id = TypeId(u32::try_from(self.entries.len()).expect("type table overflow"));
+            self.entries.push((ty, flags));
+            self.scalars[index] = Some(id);
+            return id;
+        }
         fn inspect(ty: &super::Type, depth: usize, flags: &mut TypeFlags) {
             use super::Type;
             flags.deep |= depth > 100;
@@ -220,11 +246,23 @@ impl ExpressionTypes {
         let mut pairs = Vec::with_capacity(self.active.len() + self.other.len());
         for slot in self.active {
             let index = slot as usize;
-            if let Some(id) = self.values[index - self.first_slot] { pairs.push((self.slots.spans[index], self.types.get(id).clone())); }
+            if let Some(id) = self.values[index - self.first_slot] { pairs.push((self.slots.spans[index], id)); }
         }
-        pairs.extend(self.other.into_iter().map(|(span, id)| (span, self.types.get(id).clone())));
+        pairs.extend(self.other);
         pairs.sort_unstable_by_key(|(span, _)| *span);
-        pairs.into_iter().collect()
+        let mut counts = vec![0usize; self.types.entries.len()];
+        for &(_, id) in &pairs { counts[id.0 as usize] += 1; }
+        let mut entries = self.types.entries;
+        pairs.into_iter().map(|(span, id)| {
+            let index = id.0 as usize;
+            counts[index] -= 1;
+            let ty = if counts[index] == 0 {
+                std::mem::replace(&mut entries[index].0, super::Type::Invalid)
+            } else {
+                entries[index].0.clone()
+            };
+            (span, ty)
+        }).collect()
     }
 
 }
@@ -319,6 +357,32 @@ mod tests {
             assert_eq!(flags.scheme_callable, ty.contains_scheme_callable());
             assert_eq!(table.intern(ty), id);
         }
+    }
+
+    #[test]
+    fn scalar_ids_preserve_flags_and_shared_output_types() {
+        use super::super::Type;
+        let mut table = TypeTable::default();
+        for ty in [Type::Any, Type::Unknown, Type::Invalid, Type::Null, Type::Bool, Type::Int, Type::UInt,
+            Type::Float, Type::Duration, Type::Str, Type::Bytes, Type::Digest, Type::Regex, Type::Path,
+            Type::ErasedRecord, Type::DynamicModule, Type::Status, Type::EnvPathList, Type::Error,
+            Type::ProcessError, Type::Command, Type::Unit] {
+            let id = table.intern(ty.clone());
+            let flags = table.flags(id);
+            assert_eq!(table.get(id), &ty);
+            assert_eq!(flags.inference, ty.contains_inference());
+            assert_eq!(flags.recovery, ty.contains_recovery());
+            assert_eq!(flags.any, ty.contains_any());
+            assert_eq!(flags.scheme_callable, ty.contains_scheme_callable());
+            assert_eq!(table.intern(ty), id);
+        }
+        let first = Span::new(SourceId::new(0), 1, 2);
+        let second = Span::new(SourceId::new(0), 3, 4);
+        let mut facts = ExpressionTypes::default();
+        let shared = Type::List(Box::new(Type::Str));
+        facts.insert(second, shared.clone());
+        facts.insert(first, shared.clone());
+        assert_eq!(facts.into_map(), std::collections::BTreeMap::from([(first, shared.clone()), (second, shared)]));
     }
 
     #[test]

@@ -1191,11 +1191,18 @@ impl Type {
     /// Transient variables must be substituted before publishing signatures,
     /// schema instances, or runtime checks.
     pub fn contains_inference(&self) -> bool {
-        let mut inline = [self; 32];
+        match self {
+            Self::Inference(_) => return true,
+            Self::List(_) | Self::Stream(_) | Self::Set(_) | Self::Optional(_) | Self::Map(_, _) | Self::Result(_, _)
+            | Self::Record(_) | Self::Module(_) | Self::Union(_) | Self::Validated(_) | Self::Callable(_) => {}
+            _ => return false,
+        }
+        let mut inline = [None; 32];
+        inline[0] = Some(self);
         let mut count = 1;
         while count > 0 {
             count -= 1;
-            let ty = inline[count];
+            let ty = inline[count].take().expect("occupied inference search slot");
             if matches!(ty, Self::Inference(_)) { return true; }
             match ty {
                 Self::Callable(callable) if callable.sig.effects.has_inference() => return true,
@@ -1205,7 +1212,7 @@ impl Type {
             let mut overflow = false;
             ty.for_each_child(|child| {
                 if count == inline.len() { overflow = true; }
-                else { inline[count] = child; count += 1; }
+                else { inline[count] = Some(child); count += 1; }
             });
             if overflow { break; }
         }
@@ -1272,18 +1279,25 @@ impl Type {
     }
 
     pub(crate) fn contains_scheme_callable(&self) -> bool {
-        let mut inline = [self; 128];
+        match self {
+            Self::SchemeCallable(_) => return true,
+            Self::List(_) | Self::Stream(_) | Self::Set(_) | Self::Optional(_) | Self::Map(_, _) | Self::Result(_, _)
+            | Self::Record(_) | Self::Module(_) | Self::Union(_) | Self::Validated(_) | Self::Callable(_) => {}
+            _ => return false,
+        }
+        let mut inline = [None; 128];
+        inline[0] = Some(self);
         let mut count = 1;
         let mut remaining = inline.len();
         while count > 0 && remaining > 0 {
             count -= 1;
             remaining -= 1;
-            let ty = inline[count];
+            let ty = inline[count].take().expect("occupied scheme search slot");
             if matches!(ty, Self::SchemeCallable(_)) { return true; }
             let mut overflow = false;
             ty.for_each_child(|child| {
                 if count == inline.len() { overflow = true; }
-                else { inline[count] = child; count += 1; }
+                else { inline[count] = Some(child); count += 1; }
             });
             if overflow { break; }
         }
