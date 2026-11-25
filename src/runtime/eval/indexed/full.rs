@@ -19850,7 +19850,7 @@ impl FullVerifier {
             }
             let ty = &*tables.semantic_type(fact.type_id)?;
             if matches!(fact.purpose, FullCheckedExprPurpose::ProducerContext(_)) {
-                verify_schemes::ensure_producer_context_type(store.tags[instruction], &ty)?;
+                verify_schemes::ensure_producer_context_type(store.tags[instruction], ty)?;
                 previous_checked_expression = Some(instruction);
                 continue;
             }
@@ -19868,7 +19868,7 @@ impl FullVerifier {
                     ExecutableOwner::Driver(driver) => store.driver_instruction_range(driver)?,
                 };
                 if !range.contains(&instruction) { return Err(IrVerifyError::new("captured error contract belongs to another owner")); }
-                verify_schemes::ensure_closed_type(&ty)?;
+                verify_schemes::ensure_closed_type(ty)?;
                 previous_checked_expression = Some(instruction);
                 continue;
             }
@@ -19892,24 +19892,24 @@ impl FullVerifier {
                 && matches!(ty, Type::Result(_, _));
             let checked_result_control_flow = matches!(store.tags[instruction], FullTag::ExprMatch | FullTag::ExprValueBlock)
                 && matches!(ty, Type::Result(_, _));
-            let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], &ty)?;
+            let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], ty)?;
             if checked_capture_result {
                 if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("capture or retry Result contract carries unrelated evidence"));
                 }
-                verify_schemes::ensure_closed_type(&ty)?;
+                verify_schemes::ensure_closed_type(ty)?;
             }
             if checked_result_control_flow {
                 if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("Result control-flow contract carries unrelated evidence"));
                 }
-                verify_schemes::ensure_closed_type(&ty)?;
+                verify_schemes::ensure_closed_type(ty)?;
             }
             if checked_prepared_constant {
                 if fact.function_ref().is_some() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
                 }
-                verify_schemes::ensure_substitution_type(&ty)?;
+                verify_schemes::ensure_substitution_type(ty)?;
             }
             if (structured_error != (store.tags[instruction] == FullTag::ExprError))
                 && !(structured_error && generic_call_result)
@@ -19919,7 +19919,7 @@ impl FullVerifier {
                 ));
             }
             if !ty.contains_typed_callable()
-                && crate::runtime::eval::stream_return_item(&ty).is_none()
+                && crate::runtime::eval::stream_return_item(ty).is_none()
                 && !structured_error
                 && !generic_call_result
                 && !checked_unsigned_integer_literal
