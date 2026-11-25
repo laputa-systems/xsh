@@ -1253,7 +1253,22 @@ impl Type {
     }
 
     pub(crate) fn contains_scheme_callable(&self) -> bool {
-        if matches!(self, Self::SchemeCallable(_)) { return true; }
+        let mut inline = [self; 32];
+        let mut count = 1;
+        let mut remaining = inline.len();
+        while count > 0 && remaining > 0 {
+            count -= 1;
+            remaining -= 1;
+            let ty = inline[count];
+            if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            let mut overflow = false;
+            ty.for_each_child(|child| {
+                if count == inline.len() { overflow = true; }
+                else { inline[count] = child; count += 1; }
+            });
+            if overflow { break; }
+        }
+        if count == 0 && remaining > 0 { return false; }
         let mut pending = Vec::new();
         self.for_each_child(|child| pending.push(child));
         let mut visited = rustc_hash::FxHashSet::default();
@@ -1945,6 +1960,19 @@ pub(crate) fn callable_effects_match(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scheme_callable_search_handles_shallow_and_large_types() {
+        use super::Type;
+        let callable = Type::SchemeCallable(crate::sema::scheme_callable::SchemeCallableOwner::fresh().id(0));
+        assert!(!Type::List(Box::new(Type::Int)).contains_scheme_callable());
+        assert!(Type::List(Box::new(callable.clone())).contains_scheme_callable());
+        let plain = Type::Union(vec![Type::Int; 64]);
+        assert!(!plain.contains_scheme_callable());
+        let mut members = vec![Type::Int; 64];
+        members[0] = callable;
+        assert!(Type::Union(members).contains_scheme_callable());
+    }
+
     use super::{CallableEffects, CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
