@@ -1191,6 +1191,32 @@ impl Type {
     /// Transient variables must be substituted before publishing signatures,
     /// schema instances, or runtime checks.
     pub fn contains_inference(&self) -> bool {
+        match self {
+            Self::Inference(_) => return true,
+            Self::List(_) | Self::Stream(_) | Self::Set(_) | Self::Optional(_) | Self::Map(_, _) | Self::Result(_, _)
+            | Self::Record(_) | Self::Module(_) | Self::Union(_) | Self::Validated(_) | Self::Callable(_) => {}
+            _ => return false,
+        }
+        let mut inline = [None; 32];
+        inline[0] = Some(self);
+        let mut count = 1;
+        while count > 0 {
+            count -= 1;
+            let ty = inline[count].take().expect("occupied inference search slot");
+            if matches!(ty, Self::Inference(_)) { return true; }
+            match ty {
+                Self::Callable(callable) if callable.sig.effects.has_inference() => return true,
+                Self::Module(exports) if exports.values().any(|export| matches!(export, ModuleExportType::Callable { sig, .. } if sig.effects.has_inference())) => return true,
+                _ => {}
+            }
+            let mut overflow = false;
+            ty.for_each_child(|child| {
+                if count == inline.len() { overflow = true; }
+                else { inline[count] = Some(child); count += 1; }
+            });
+            if overflow { break; }
+        }
+        if count == 0 { return false; }
         let mut pending = Vec::new();
         let mut current = Some(self);
         while let Some(ty) = current.take().or_else(|| pending.pop()) {
@@ -1253,13 +1279,41 @@ impl Type {
     }
 
     pub(crate) fn contains_scheme_callable(&self) -> bool {
-        if matches!(self, Self::SchemeCallable(_)) { return true; }
+        match self {
+            Self::SchemeCallable(_) => return true,
+            Self::List(_) | Self::Stream(_) | Self::Set(_) | Self::Optional(_) | Self::Map(_, _) | Self::Result(_, _)
+            | Self::Record(_) | Self::Module(_) | Self::Union(_) | Self::Validated(_) | Self::Callable(_) => {}
+            _ => return false,
+        }
+        let mut inline = [None; 128];
+        inline[0] = Some(self);
+        let mut count = 1;
+        let mut remaining = inline.len();
+        while count > 0 && remaining > 0 {
+            count -= 1;
+            remaining -= 1;
+            let ty = inline[count].take().expect("occupied scheme search slot");
+            if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            let mut overflow = false;
+            ty.for_each_child(|child| {
+                if count == inline.len() { overflow = true; }
+                else { inline[count] = Some(child); count += 1; }
+            });
+            if overflow { break; }
+        }
+        if count == 0 && remaining > 0 { return false; }
         let mut pending = Vec::new();
         self.for_each_child(|child| pending.push(child));
         let mut visited = rustc_hash::FxHashSet::default();
         while let Some(ty) = pending.pop() {
-            if !visited.insert(std::ptr::from_ref(ty)) { continue; }
             if matches!(ty, Self::SchemeCallable(_)) { return true; }
+            let shared = match ty {
+                Self::Record(fields) if Arc::strong_count(fields) > 1 => Some((0u8, Arc::as_ptr(fields).cast::<()>())),
+                Self::Module(module) if Arc::strong_count(module) > 1 => Some((1u8, Arc::as_ptr(module).cast::<()>())),
+                Self::Callable(callable) if Arc::strong_count(callable) > 1 => Some((2u8, Arc::as_ptr(callable).cast::<()>())),
+                _ => None,
+            };
+            if shared.is_some_and(|shared| !visited.insert(shared)) { continue; }
             ty.for_each_child(|child| pending.push(child));
         }
         false
@@ -1945,6 +1999,41 @@ pub(crate) fn callable_effects_match(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inference_search_handles_shallow_and_large_types() {
+        use super::Type;
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let span = crate::source::Span::new(crate::source::SourceId::new(0), 1, 2);
+        let variable = constraints.fresh(span);
+        assert!(!Type::List(Box::new(Type::Int)).contains_inference());
+        assert!(Type::List(Box::new(variable.clone())).contains_inference());
+        assert!(!Type::Union(vec![Type::Int; 64]).contains_inference());
+        let mut members = vec![Type::Int; 64];
+        members[0] = variable;
+        assert!(Type::Union(members).contains_inference());
+    }
+
+    #[test]
+    fn scheme_callable_search_handles_shallow_and_large_types() {
+        use super::Type;
+        let callable = Type::SchemeCallable(crate::sema::scheme_callable::SchemeCallableOwner::fresh().id(0));
+        assert!(!Type::List(Box::new(Type::Int)).contains_scheme_callable());
+        assert!(Type::List(Box::new(callable.clone())).contains_scheme_callable());
+        let plain = Type::Union(vec![Type::Int; 256]);
+        assert!(!plain.contains_scheme_callable());
+        let mut members = vec![Type::Int; 256];
+        members[0] = callable;
+        assert!(Type::Union(members).contains_scheme_callable());
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let name = crate::symbol::Name::intern("item");
+            let shared = Type::Record(std::sync::Arc::new(std::collections::BTreeMap::from([(name, Type::Int)])));
+            assert!(!Type::Union(vec![shared; 256]).contains_scheme_callable());
+            let callable = Type::SchemeCallable(crate::sema::scheme_callable::SchemeCallableOwner::fresh().id(0));
+            let shared = Type::Record(std::sync::Arc::new(std::collections::BTreeMap::from([(name, callable)])));
+            assert!(Type::Union(vec![shared; 256]).contains_scheme_callable());
+        });
+    }
+
     use super::{CallableEffects, CallableKind, CallableParamType, CallableType, ModuleExportType, Type};
     use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;

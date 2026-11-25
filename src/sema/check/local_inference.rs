@@ -269,7 +269,7 @@ impl Checker {
             !self.local_inference.nonmaterial_expressions.contains(span)
                 || !matches!(constraints.resolve(ty), Ok(resolved) if resolved.contains_inference())
         });
-        self.expr_types.for_each_sorted_mut(|span, ty| {
+        self.expr_types.for_each_sorted_inference_mut(|span, ty| {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         });
         for ((_, span), fact) in &mut self.stream_stage_types {
