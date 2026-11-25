@@ -28,10 +28,25 @@ thread_local! {
     pub(super) static USER_MODULE_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+trait BodyTypes {
+    fn by_span(&self, span: &Span) -> Option<&Type>;
+    fn by_expression(&self, program: &ArenaProgram, id: ExprId) -> Option<&Type>;
+}
+
+impl BodyTypes for BTreeMap<Span, Type> {
+    fn by_span(&self, span: &Span) -> Option<&Type> { self.get(span) }
+    fn by_expression(&self, program: &ArenaProgram, id: ExprId) -> Option<&Type> { self.get(&program.arena.expr_span(id)) }
+}
+
+impl BodyTypes for super::fact_slots::ExpressionTypes {
+    fn by_span(&self, span: &Span) -> Option<&Type> { self.get(span) }
+    fn by_expression(&self, program: &ArenaProgram, id: ExprId) -> Option<&Type> { self.get_expr(program, id) }
+}
+
 fn collect_body_type_facts(
     program: &ArenaProgram,
     body: BlockId,
-    checked: &BTreeMap<Span, Type>,
+    checked: &impl BodyTypes,
     prepared: &crate::sema::constants::PreparedConstants,
     bindings: &super::ResolvedBindings,
     selected_callee: impl Fn(ExprId) -> bool,
@@ -41,7 +56,7 @@ fn collect_body_type_facts(
 ) -> (
     BTreeMap<ExprId, Type>,
     BTreeMap<StmtId, Type>,
-    std::collections::BTreeSet<Span>,
+    FxHashSet<Span>,
     std::collections::BTreeSet<super::BindingId>,
     std::collections::BTreeSet<StmtId>,
     FxHashSet<ExprId>,
@@ -67,7 +82,7 @@ fn collect_body_type_facts(
             ArenaChild::Expr(id) if expressions.insert((id, usage)) => {
                 let expression = arena.expr(id);
                 expression_spans.push(expression.span);
-                if let Some(ty) = checked.get(&expression.span) {
+                if let Some(ty) = checked.by_expression(program, id) {
                     types.push((id, ty.clone()));
                 }
                 if prepared.values.contains_key(&id) || selected_nullary(id) { continue; }
@@ -90,7 +105,7 @@ fn collect_body_type_facts(
                     failure_only_completion_expressions.insert(expression);
                 }
                 if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. })
-                    && let Some(ty) = checked.get(&statement.span)
+                    && let Some(ty) = checked.by_span(&statement.span)
                 {
                     tail_types.insert(id, ty.clone());
                 }
@@ -183,7 +198,7 @@ pub(super) struct PreparedFunctionGeneralization {
     registered_calls: BTreeMap<ExprId, Arc<crate::sema::schemes::RegisteredCallPlan>>,
     read_bindings: std::collections::BTreeSet<super::BindingId>,
     local_statements: std::collections::BTreeSet<StmtId>,
-    pub(super) expression_spans: std::collections::BTreeSet<Span>,
+    pub(super) expression_spans: FxHashSet<Span>,
 }
 
 struct PreparedCheckedFunction {
@@ -294,7 +309,7 @@ impl Checker {
             let (_, _, _, reads, _, _) = collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
                 |expression| { let span = program.arena.expr_span(expression); self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span)
                     || self.declaration_inference.pending(FunctionDeclarationId::new(self.effect_declaration_id(program, def.body))).is_some_and(|pending| pending.constructor_instances.contains_key(&span)) },
-                |expression| self.expr_types.get(&program.arena.expr_span(expression)).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                |expression| self.expr_types.get_expr(program, expression).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
             captures.extend(reads);
         }
@@ -360,7 +375,7 @@ impl Checker {
         let (mut body_types, mut tail_types, expression_spans, read_bindings, local_statements, failure_only_completion_expressions) =
             collect_body_type_facts(program, def.body, &self.expr_types, &self.prepared_constants, &self.resolved_bindings,
                 |expression| { let span = program.arena.expr_span(expression); self.selected_function_calls.contains_key(&span) || self.record_constructor_instances.contains_key(&span) || self.error_constructors.contains_key(&span) || pending.constructor_instances.contains_key(&span) },
-                |expression| self.expr_types.get(&program.arena.expr_span(expression)).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
+                |expression| self.expr_types.get_expr(program, expression).and_then(|ty| self.checked_nullary_tag_producer_span(program, expression, ty)).is_some(),
                 &self.resolved_command_sites, &defaults);
         let diverging_handlers = body_types.keys().copied().filter_map(|expression| {
             let crate::syntax::arena::ArenaExprKind::Binary { op: crate::syntax::node::BinaryOp::ResultFallback, right, .. } = program.arena.expr_kind(expression) else { return None };

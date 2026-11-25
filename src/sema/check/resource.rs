@@ -1044,7 +1044,7 @@ mod tests {
         assert!(!checked.expr_types.contains_key(&missing_leaf));
         program.symbol_owner().with_current(|| {
             let mut checker = Checker::new(super::super::CheckOptions::for_execution());
-            checker.expr_types = checked.expr_types.clone();
+            checker.expr_types = checked.expr_types.clone().into();
             checker.statement_positions = checked.statement_positions.clone();
             let mut analyzer = Analyzer {
                 checker: &checker, program, root_statements: program.statements, modules: Vec::new(),

@@ -104,7 +104,7 @@ impl Checker {
                     && projection.operation == crate::sema::projection::ProjectionOperation::Get
                     && let Some(actual) = projection.callable.as_ref().and_then(|export| self.resolve_generic_module_callable_alias(program, projection.receiver, projection.field, export))
                     && actual.signature.definition_target() == Some(target)
-                    && let Some(Type::Result(success, error)) = self.expr_types.get(&program.arena.expr_span(inner))
+                    && let Some(Type::Result(success, error)) = self.expr_types.get_expr(program, inner)
                     && success.as_ref() == &Type::Function(named.kind)
                 {
                     self.record_expr_type(program.arena.expr_span(inner), Type::Result(Box::new(ty.clone()), error.clone()));

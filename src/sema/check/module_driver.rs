@@ -34,6 +34,7 @@ pub struct CheckSession {
     records: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
     cache_trace: Option<CacheTrace>,
     view_context: Arc<()>,
+    fact_slots: Arc<std::sync::OnceLock<Arc<super::fact_slots::FactSlots>>>,
 }
 
 impl CheckSession {
@@ -55,6 +56,7 @@ impl CheckSession {
             records: Arc::new(Mutex::new(FxHashMap::default())),
             cache_trace: CacheTrace::shared(),
             view_context: Arc::new(()),
+            fact_slots: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -82,6 +84,7 @@ impl CheckSession {
             Some(entry_source_id),
         );
         view.entry_context = Some(Arc::clone(&self.view_context));
+        view.fact_slots = Arc::clone(&self.fact_slots);
         view
     }
 
@@ -394,12 +397,13 @@ impl Checker {
         dependency_origins: &Arc<super::stream_origins::StreamOriginSummaries>,
     ) -> CheckedModuleFacts {
         let program = view.program;
-        let module_view = CheckBundleView::for_module_owner(
+        let mut module_view = CheckBundleView::for_module_owner(
             program,
             module,
             sources,
             record.source_id(),
         );
+        module_view.fact_slots = Arc::clone(&view.fact_slots);
         let source = sources.map_or(entry_source, |sources| {
             sources
                 .get(record.source_id())
@@ -419,6 +423,9 @@ impl Checker {
                 );
                 probe.effect_summaries.extend(provisional);
                 probe.stream_origin_inputs = super::stream_origins::StreamOriginInputs::for_probe(Arc::clone(dependency_origins), origin_probe);
+                let slots = module_view.fact_slots();
+                probe.expr_types.attach(Arc::clone(&slots));
+                probe.propagating_error_spans.attach(slots);
                 record.prepared_facts().install(&mut probe, program);
                 probe.record_constructors.replace_instance_facts(
                     &bundle_record.prepared_facts().record_constructors,

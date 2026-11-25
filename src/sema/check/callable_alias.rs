@@ -100,7 +100,7 @@ impl Checker {
             }
             if let ArenaExprKind::Field { base, name } = program.arena.expr_kind(expression)
                 && let Some(Type::Module(exports)) =
-                    self.expr_types.get(&program.arena.expr_span(base))
+                    self.expr_types.get_expr(program, base)
                 && let Some(export) = exports.get(&name)
                 && let Some(target) =
                     self.resolve_module_callable_alias(program, base, name, export)

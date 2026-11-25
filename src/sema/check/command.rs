@@ -789,7 +789,7 @@ impl Checker {
             self.check_external_arg_arena(arena, source, &segment.target);
             let vector = match segment.target.kind {
                 ArenaCommandArgKind::SpliceExpr(list) => {
-                    self.expr_types.get(&arena.arena.expr_span(list)).cloned()
+                    self.expr_types.get_expr(arena, list).cloned()
                 }
                 ArenaCommandArgKind::SpliceName(name) => self
                     .lookup_value_binding_at(name, arena.arena.span(segment.target.span))

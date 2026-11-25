@@ -103,6 +103,7 @@ struct ControlFlow {
 struct FlowFacts<'a> {
     bindings: Option<&'a super::ResolvedBindings>,
     expression_types: Option<&'a BTreeMap<Span, Type>>,
+    checker_expression_types: Option<&'a super::fact_slots::ExpressionTypes>,
     expression_types_by_id: Option<&'a FxHashMap<ExprId, Type>>,
     tag_variants: Option<&'a FxHashMap<Name, TagVariantInfo>>,
     conversions: Option<&'a BTreeMap<Span, super::Conversion>>,
@@ -111,6 +112,7 @@ struct FlowFacts<'a> {
     cardinality_preserving_collection_calls: Option<&'a BTreeSet<Span>>,
     argument_bindings: Option<&'a BTreeMap<Span, super::CheckedArguments>>,
     propagating_error_spans: Option<&'a BTreeSet<Span>>,
+    checker_propagating_error_spans: Option<&'a super::fact_slots::ExpressionSpans>,
     latent_stream_error_spans: Option<&'a BTreeSet<Span>>,
     fallible_pipeline_stage_spans: Option<&'a BTreeSet<Span>>,
     propagating_stage_callback_spans: Option<&'a BTreeSet<Span>>,
@@ -125,6 +127,7 @@ impl FlowFacts<'static> {
     const AST_ONLY: Self = Self {
         bindings: None,
         expression_types: None,
+        checker_expression_types: None,
         expression_types_by_id: None,
         tag_variants: None,
         conversions: None,
@@ -133,6 +136,7 @@ impl FlowFacts<'static> {
         cardinality_preserving_collection_calls: None,
         argument_bindings: None,
         propagating_error_spans: None,
+        checker_propagating_error_spans: None,
         latent_stream_error_spans: None,
         fallible_pipeline_stage_spans: None,
         propagating_stage_callback_spans: None,
@@ -196,10 +200,11 @@ fn handle_propagation(mut flow: ControlFlow) -> ControlFlow {
     flow
 }
 
-fn checked_error_site(facts: &FlowFacts<'_>, span: Span) -> bool {
-    facts
-        .propagating_error_spans
-        .is_some_and(|spans| spans.contains(&span))
+fn checked_error_site(facts: &FlowFacts<'_>, span: Span, expression: Option<ExprId>) -> bool {
+    facts.propagating_error_spans.is_some_and(|spans| spans.contains(&span))
+        || facts.checker_propagating_error_spans.is_some_and(|spans| {
+            expression.map_or_else(|| spans.contains(&span), |id| spans.contains_expr(id, &span))
+        })
 }
 
 /// Summarizes reachable loop breaks, explicit exits, error propagation, and
@@ -278,9 +283,9 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) ->
                 facts
                     .propagating_statements
                     .is_some_and(|spans| spans.contains(&stmt.span))
-                    && facts
-                        .expression_types
+                    && facts.expression_types
                         .and_then(|types| types.get(&arena.arena.expr_span(expr)))
+                        .or_else(|| facts.checker_expression_types.and_then(|types| types.get_expr(arena, expr)))
                         .is_some_and(Type::is_result_unit)
             }
             ArenaStmtKind::Command(_) => facts
@@ -289,7 +294,7 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) ->
             _ => false,
         };
         if propagates
-            || checked_error_site(facts, stmt.span)
+            || checked_error_site(facts, stmt.span, None)
             || stmt_run_propagates(arena, id)
             || stmt_command_propagates(arena, id)
         {
@@ -602,6 +607,7 @@ fn expression_type<'a>(
     facts
         .expression_types_by_id
         .and_then(|types| types.get(&expr))
+        .or_else(|| facts.checker_expression_types.and_then(|types| types.get_expr(arena, expr)))
         .or_else(|| {
             facts
                 .expression_types
@@ -1812,7 +1818,7 @@ fn expr_control_flow(arena: &ArenaProgram, id: ExprId, facts: &FlowFacts<'_>) ->
         && (condition_propagates
             || run_propagates
             || builtin_range_can_fail
-            || checked_error_site(facts, expr.span))
+            || checked_error_site(facts, expr.span, Some(id)))
     {
         flow.propagates = true;
     }
@@ -1838,7 +1844,7 @@ fn expr_control_flow_inner(
             let mut receiver = expr_control_flow(arena, base, facts);
             if receiver.completes
                 && receiver_type.is_some_and(|ty| matches!(ty.unvalidated(), Type::Result(_, _)))
-                && checked_error_site(facts, arena.arena.expr_span(id))
+                && checked_error_site(facts, arena.arena.expr_span(id), Some(id))
             {
                 receiver.propagates = true;
             }
@@ -2255,7 +2261,8 @@ impl Checker {
     fn checked_flow_facts(&self) -> FlowFacts<'_> {
         FlowFacts {
             bindings: Some(&self.resolved_bindings),
-            expression_types: Some(&self.expr_types),
+            checker_expression_types: Some(&self.expr_types),
+            expression_types: None,
             expression_types_by_id: None,
             tag_variants: Some(&self.tag_variants),
             conversions: Some(&self.conversions),
@@ -2265,7 +2272,8 @@ impl Checker {
                 &self.cardinality_preserving_collection_calls,
             ),
             argument_bindings: Some(&self.argument_bindings),
-            propagating_error_spans: Some(&self.propagating_error_spans),
+            propagating_error_spans: None,
+            checker_propagating_error_spans: Some(&self.propagating_error_spans),
             latent_stream_error_spans: Some(&self.latent_stream_error_spans),
             fallible_pipeline_stage_spans: Some(&self.fallible_pipeline_stage_spans),
             propagating_stage_callback_spans: Some(&self.propagating_stage_callback_spans),
@@ -6967,7 +6975,7 @@ impl Checker {
                     && self.return_inference_block_returns(arena, other)
             }
             ArenaStmtKind::Match { value, arms } => {
-                let Some(ty) = self.expr_types.get(&arena.arena.expr_span(value)) else {
+                let Some(ty) = self.expr_types.get_expr(arena, value) else {
                     return false;
                 };
                 let arms = arena.arena.match_arms(arms);

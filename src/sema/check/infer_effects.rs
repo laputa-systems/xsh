@@ -1441,7 +1441,7 @@ impl Checker {
                 diagnostic.notes.push(format!("caller declares effects [{}]", caller.iter().map(Effect::as_str).collect::<Vec<_>>().join(", ")));
             }
             diagnostic.labels.extend(check.context.excluded.iter().map(ExcludedEffect::diagnostic_label));
-            for (&span, ty) in &self.expr_types {
+            for (&span, ty) in self.expr_types.iter() {
                 if span.source_id != check.span.source_id || span.start() < check.span.start() || span.end() > check.span.end() { continue; }
                 let Ok(ty) = self.type_constraints.resolve(ty) else { continue; };
                 if matches!(ty, Type::Callable(_)) && !ty.contains_inference() && !ty.contains_recovery() {
