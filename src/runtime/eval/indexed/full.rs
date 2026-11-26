@@ -16876,12 +16876,12 @@ impl<'a> FullDecoder<'a> {
     fn verify_callable_slot_initializers(&self) -> Result<(), IrVerifyError> {
         for instruction in self.instruction_range.clone() {
             let instruction_kind = self.store.tags[instruction].kind();
-            if instruction_kind == schema::InstructionKind::Expr
-                && matches!(&*self.expression_view_ref(instruction)?,
-                    schema::ExprView::MatchExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::ListPipeline { .. }
-                    | schema::ExprView::ListComp { .. } | schema::ExprView::MapComp { .. })
+            let view = if instruction_kind == schema::InstructionKind::Expr { Some(self.expression_view_ref(instruction)?) } else { None };
+            if let Some(view) = view.filter(|view| matches!(&**view,
+                schema::ExprView::MatchExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::ListPipeline { .. }
+                | schema::ExprView::ListComp { .. } | schema::ExprView::MapComp { .. }))
             {
-                match self.expression_view(instruction)? {
+                match view.into_owned() {
                     schema::ExprView::MatchExpr { value, mut arms, .. } => {
                         let mut subject_type =
                             self.checked_expression_type(value.raw() as usize)?;
