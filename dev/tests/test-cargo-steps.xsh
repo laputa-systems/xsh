@@ -126,10 +126,12 @@ esac
 proc install_cargo_test_runner(root: Path, repository: Path) [fs, error] {
   let dev = fp"{root}/dev"
   dev.mkdir()
-  fp"{dev}/cargo_test_runner.sh".write(
-    fp"{repository}/dev/cargo_test_runner.sh".read_text()?,
-    mode: 0o755,
-  )
+  for name in ["cargo_test_runner.sh", "unlock_cargo_lock.py"] {
+    fp"{dev}/{name}".write(
+      fp"{repository}/dev/{name}".read_text()?,
+      mode: 0o755,
+    )
+  }
 }
 
 test test_cargo_steps_forward_aliases_for_the_mold_driver_only { |ctx|
