@@ -730,7 +730,9 @@ impl Checker {
         if expected.is_none() {
             self.boundary.expected_schema = None;
         }
-        let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
+        let resolved = expected
+            .filter(|ty| !crate::sema::constraints::resolves_unchanged(ty))
+            .and_then(|ty| self.type_constraints.resolve(ty).ok());
         let control = std::mem::take(&mut self.boundary.control_condition);
         let outer_control = std::mem::replace(&mut self.boundary.in_control_position, control);
         let expected = resolved.as_ref().or(expected);

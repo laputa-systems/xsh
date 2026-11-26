@@ -5414,6 +5414,32 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
     Ok(false)
 }
 
+/// Whether resolving `ty` from depth zero against any constraint state
+/// succeeds and returns an equal type: it holds no inference variable, no
+/// callable effect variable, and is shallow enough that no resolution depth
+/// bound can be reached. A `false` answer says nothing about the resolution.
+pub(crate) fn resolves_unchanged(ty: &Type) -> bool {
+    match ty {
+        Type::Inference(_) => return false,
+        Type::List(_) | Type::Stream(_) | Type::Set(_) | Type::Optional(_) | Type::Map(_, _) | Type::Result(_, _)
+        | Type::Record(_) | Type::Module(_) | Type::Union(_) | Type::Validated(_) | Type::Callable(_) => {}
+        _ => return true,
+    }
+    let mut pending = TypeWorklist::new(ty, 0);
+    while let Some((ty, depth)) = pending.pop() {
+        if depth > MAX_TYPE_DEPTH / 4 {
+            return false;
+        }
+        match ty {
+            Type::Inference(_) => return false,
+            Type::Callable(callable) if callable.sig.effects.has_inference() => return false,
+            Type::Module(exports) if exports.values().any(|export| matches!(export, ModuleExportType::Callable { sig, .. } if sig.effects.has_inference())) => return false,
+            _ => pending.push_children(ty, depth),
+        }
+    }
+    true
+}
+
 fn module_has_inference(
     exports: &std::collections::BTreeMap<crate::symbol::Name, ModuleExportType>,
     depth: usize,

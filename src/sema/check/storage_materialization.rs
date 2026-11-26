@@ -37,6 +37,7 @@ impl Checker {
     }
 
     fn materialize_storage(&mut self, arena: &ArenaProgram, id: ExprId, actual: Type, context: StorageContext<'_>) -> Type {
+        if Self::storage_keeps_unchanged(&actual, context) { return actual; }
         let span = arena.arena.expr_span(id);
         let plan = match self.storage_materialization_plan(&actual, context, span, 0) {
             Ok(plan) => plan,
@@ -54,6 +55,15 @@ impl Checker {
         assert!(previous.is_none(), "a stored value has one owned materialization plan");
         self.record_expr_type(span, destination.clone());
         destination
+    }
+
+    fn storage_keeps_unchanged(actual: &Type, context: StorageContext<'_>) -> bool {
+        use crate::sema::constraints::resolves_unchanged;
+        resolves_unchanged(actual) && match context {
+            StorageContext::Expected(expected) => resolves_unchanged(expected) && !actual.contains_scheme_callable(),
+            StorageContext::Mutable => !actual.contains_scheme_callable(),
+            StorageContext::Opaque => true,
+        }
     }
 
     fn storage_materialization_plan(
