@@ -84,6 +84,51 @@ impl<T> std::ops::Index<&u32> for OwnerTable<T> {
     }
 }
 
+struct StatementPositions {
+    start: usize,
+    dense: Vec<Option<(usize, usize)>>,
+    foreign: BTreeMap<usize, (usize, usize)>,
+    len: usize,
+}
+
+impl StatementPositions {
+    fn new(range: &std::ops::Range<usize>) -> Self {
+        Self { start: range.start, dense: vec![None; range.len()], foreign: BTreeMap::new(), len: 0 }
+    }
+
+    fn get(&self, statement: &usize) -> Option<&(usize, usize)> {
+        match statement.checked_sub(self.start).and_then(|local| self.dense.get(local)) {
+            Some(position) => position.as_ref(),
+            None => self.foreign.get(statement),
+        }
+    }
+
+    fn contains_key(&self, statement: &usize) -> bool {
+        self.get(statement).is_some()
+    }
+
+    fn insert(&mut self, statement: usize, position: (usize, usize)) -> Option<(usize, usize)> {
+        let previous = match statement.checked_sub(self.start).and_then(|local| self.dense.get_mut(local)) {
+            Some(slot) => slot.replace(position),
+            None => self.foreign.insert(statement, position),
+        };
+        if previous.is_none() { self.len += 1; }
+        previous
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn keys(&self) -> impl Iterator<Item = usize> + '_ {
+        let start = self.start;
+        let below = self.foreign.range(..start).map(|(statement, _)| *statement);
+        let owned = self.dense.iter().enumerate().filter_map(move |(local, position)| position.map(|_| start + local));
+        let above = self.foreign.range(start..).map(|(statement, _)| *statement);
+        below.chain(owned).chain(above)
+    }
+}
+
 fn same_type(left: &Arc<Type>, right: &Arc<Type>) -> bool {
     Arc::ptr_eq(left, right) || left == right
 }
@@ -116,6 +161,12 @@ impl<T> InstructionTable<T> {
             Some(Some((resident, resident_value))) if *resident == owner => *resident_value = value,
             _ => { self.displaced.insert((owner, instruction), value); }
         }
+    }
+
+    fn insert_new(&mut self, owner: u32, instruction: usize, value: T) -> bool {
+        if self.contains(owner, instruction) { return false; }
+        self.insert(owner, instruction, value);
+        true
     }
 
     fn get_or_default(&mut self, owner: u32, instruction: usize) -> &mut T where T: Default {
@@ -205,7 +256,7 @@ struct ProducerOwner {
     storage_bindings: rustc_hash::FxHashMap<ProducerBinding, StorageBinding>,
     parents: Vec<Option<usize>>,
     statements: Vec<Option<usize>>,
-    statement_positions: BTreeMap<usize, (usize, usize)>,
+    statement_positions: StatementPositions,
     block_declarations: rustc_hash::FxHashMap<(usize, usize), Vec<(usize, ProducerBinding)>>,
     lexical_slots: rustc_hash::FxHashMap<usize, LexicalSlotIdentity>,
     inherited_bindings: RefCell<rustc_hash::FxHashMap<(usize, usize), Option<ProducerBinding>>>,
@@ -1414,7 +1465,7 @@ impl ProducerOwner {
                     return decoder.checked_anchored_prefix_preserves_binding_path(anchor, roots.to_vec(), instruction, target, charge);
                 };
                 let Some((guard, branch_index, anchor, roots)) = preceding else { return Ok(false) };
-                let key = (snapshot && matches!(payload, super::super::GuardedReadContract::OptionalPayload(_))).then(|| (self.statement_positions[&anchor].0, guard, branch_index, condition, when_true, is_boolean, binding));
+                let key = (snapshot && matches!(payload, super::super::GuardedReadContract::OptionalPayload(_))).then(|| (self.statement_positions.get(&anchor).expect("guarded read anchor has a statement position").0, guard, branch_index, condition, when_true, is_boolean, binding));
                 if let Some(key) = key {
                     charge(1)?;
                     if let Some(paths) = self.snapshot_predicates.borrow().get(&key) {
@@ -1818,6 +1869,7 @@ impl GroundProducerIndex {
         let owner = driver_owner(step).map_err(|_| IrVerifyError::new("namespace capture writer owner is invalid"))?;
         Ok(self.module_exports.contains_key(&owner))
     }
+    #[cfg(test)]
     pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
         Self::with_types(store, &super::super::super::semantic::MaterializedTypes::new(&store.semantic))
     }
@@ -2026,21 +2078,24 @@ impl GroundProducerIndex {
         let range = decoder.instruction_range.clone();
         let return_analysis = decoder.share_return_analysis()?;
         work.borrow_mut().charge(range.len() + return_analysis.uncaught_try_roots.len() + return_analysis.loop_transfers.len() + return_analysis.loop_values.as_ref().map_or(0, |values| values.len() + values.values().map(Vec::len).sum::<usize>()) + return_analysis.loop_unit_exits.as_ref().map_or(0, |exits| exits.len()))?;
-        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: rustc_hash::FxHashMap::default(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: BTreeMap::new(), block_declarations: rustc_hash::FxHashMap::default(), lexical_slots: rustc_hash::FxHashMap::default(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: rustc_hash::FxHashMap::default(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), immutable_initializers: RefCell::default(), guard_scope_conditions: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: rustc_hash::FxHashMap::default(), pattern_sources: BTreeMap::new(), comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: rustc_hash::FxHashMap::default(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
+        let mut owner = ProducerOwner { prepared_constant_work: decoder.prepared_constant_work.get(), work: Rc::clone(&work), children: vec![IR_NONE; range.len()], siblings: vec![IR_NONE; range.len()], writers: BTreeMap::new(), storage_bindings: rustc_hash::FxHashMap::default(), parents: vec![None; range.len()], statements: vec![None; range.len()], statement_positions: StatementPositions::new(&range), block_declarations: rustc_hash::FxHashMap::default(), lexical_slots: rustc_hash::FxHashMap::default(), inherited_bindings: RefCell::default(), bindings: RefCell::default(), #[cfg(test)] binding_work: Cell::new((0, 0, 0)), #[cfg(test)] census_instruction_visits: 0, block_statements: BTreeMap::new(), block_guards: BTreeMap::new(), block_can_complete: rustc_hash::FxHashMap::default(), typed_calls: Vec::new(), completed_optional_reads: RefCell::default(), completed_union_reads: RefCell::default(), snapshot_predicates: RefCell::default(), immutable_initializers: RefCell::default(), guard_scope_conditions: RefCell::default(), declarations: BTreeMap::new(), following_declarations: BTreeMap::new(), region_bindings: rustc_hash::FxHashMap::default(), pattern_sources: BTreeMap::new(), comprehension_sources: BTreeMap::new(), pipeline_sources: BTreeMap::new(), callback_returns: BTreeMap::new(), pipeline_groups: rustc_hash::FxHashMap::default(), pipeline_stages: BTreeMap::new(), unreachable_roots: BTreeSet::new(), returns: Vec::new(), yield_sites: Vec::new(), return_analysis, range: range.clone() };
         let mut roots = Vec::new();
         let mut slot_reads = Vec::new();
         let mut pattern_instructions = Vec::new();
         let mut physical_statements = 0;
+        let mut written_slots = vec![None; range.len()];
         let mut complete_statement_positions = decoder.block_states.as_ref().is_some_and(|blocks| blocks.finished_owned.get() == blocks.owned);
         for instruction in range.clone() {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
-            if matches!(decoder.store.tags[instruction], FullTag::ExprCapture | FullTag::ExprRetry) {
+            let tag = decoder.store.tags[instruction];
+            let kind = tag.kind();
+            if matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry) {
                 self.capture_retry_roots.push(instruction);
             }
-            if decoder.store.tags[instruction] == FullTag::ExprTypedCall { owner.typed_calls.push(instruction); }
-            if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt { physical_statements += 1; }
-            if matches!(decoder.store.tags[instruction], FullTag::StmtMatch | FullTag::ExprMatch
+            if tag == FullTag::ExprTypedCall { owner.typed_calls.push(instruction); }
+            if kind == schema::InstructionKind::Stmt { physical_statements += 1; }
+            if matches!(tag, FullTag::StmtMatch | FullTag::ExprMatch
                 | FullTag::ExprPatternIf | FullTag::StmtPatternIf | FullTag::StmtPatternWhile
                 | FullTag::ExprListComp | FullTag::ExprMapComp | FullTag::ExprPipeline
                 | FullTag::StmtGuard)
@@ -2049,10 +2104,10 @@ impl GroundProducerIndex {
                 pattern_instructions.push(instruction);
             }
             if super::super::verify_effects::needs_operand_proof(decoder.store, instruction)? { self.effect_operations.push(instruction); }
-            if has_condition_inputs(decoder.store.tags[instruction]) {
+            if has_condition_inputs(tag) {
                 record_condition_inputs(decoder, instruction, &mut self.conditions, |amount| work.borrow_mut().charge(amount))?;
             }
-            if decoder.store.tags[instruction] == FullTag::ExprParam {
+            if tag == FullTag::ExprParam {
                 let schema::ExprView::Param(slot) = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 slot_reads.push((instruction, slot));
             }
@@ -2063,13 +2118,17 @@ impl GroundProducerIndex {
                 owner.siblings[instruction - range.start] = owner.children[parent];
                 owner.children[parent] = instruction as u32;
             } else { roots.push(instruction); }
-            if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt
-                && !matches!(decoder.store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtDefaultParameter | FullTag::StmtScanBytes)
+            if kind == schema::InstructionKind::Stmt
+                && !matches!(tag, FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtDefaultParameter | FullTag::StmtScanBytes)
             {
                 let statement = decoder.statement_view_ref(instruction)?;
                 let declared = match &*statement {
                     schema::StmtView::ScanLines { line_slot, .. } => vec![*line_slot],
-                    _ => decoder.statement_written_slots(instruction)?.0,
+                    _ => {
+                        let slots = decoder.statement_written_slots(instruction)?.0;
+                        written_slots[instruction - range.start] = Some(slots.clone());
+                        slots
+                    }
                 };
                 if !declared.is_empty() { owner.declarations.insert(instruction, declared); }
                 let following = match &*statement {
@@ -2327,7 +2386,7 @@ impl GroundProducerIndex {
         }
         let trivial_flow = callback_anchors.is_empty() && owner.unreachable_roots.is_empty()
             && complete_statement_positions && owner.statement_positions.len() == physical_statements;
-        let mut statements = owner.statement_positions.keys().copied();
+        let mut statements = owner.statement_positions.keys();
         let mut pending = if trivial_flow { Vec::new() } else {
             roots.into_iter().map(|instruction| (instruction, None, true)).collect::<Vec<_>>()
         };
@@ -2337,7 +2396,11 @@ impl GroundProducerIndex {
             #[cfg(test)] { owner.census_instruction_visits += 1; }
             work.borrow_mut().charge(1)?;
             if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt {
-                for slot in decoder.statement_written_slots(instruction)?.0 {
+                let slots = match instruction.checked_sub(range.start).and_then(|local| written_slots.get_mut(local)).and_then(Option::take) {
+                    Some(slots) => slots,
+                    None => decoder.statement_written_slots(instruction)?.0,
+                };
+                for slot in slots {
                     let binding = if owner.declarations.get(&instruction).is_some_and(|slots| slots.contains(&slot)) {
                         ProducerBinding::ScopedDeclaration(instruction, slot)
                     } else {
@@ -2366,6 +2429,7 @@ impl GroundProducerIndex {
                 }
             }
         }
+        drop(statements);
         let mut storage_roots = BTreeMap::new();
         let mut has_mutable_storage = false;
         if let Some(step) = super::super::driver_owner_index(decoder.owner) {
@@ -2467,7 +2531,7 @@ impl GroundProducerIndex {
                 child = owner.siblings[child as usize - owner.range.start];
             }
         }
-        Ok(statements == owner.statement_positions.keys().copied().collect()
+        Ok(statements == owner.statement_positions.keys().collect()
             && returns == owner.returns.iter().copied().collect()
             && owner.callback_returns.is_empty()
             && writers.len() == owner.writers.len()
@@ -2504,7 +2568,7 @@ impl GroundProducerIndex {
                     + owner.storage_bindings.len() * size_of::<(ProducerBinding, StorageBinding)>()
                     + owner.children.capacity() * size_of::<u32>() + owner.siblings.capacity() * size_of::<u32>()
                     + owner.parents.capacity() * size_of::<Option<usize>>() + owner.statements.capacity() * size_of::<Option<usize>>() + owner.returns.capacity() * size_of::<usize>()
-                    + owner.statement_positions.len() * size_of::<(usize, (usize, usize))>()
+                    + owner.statement_positions.dense.capacity() * size_of::<Option<(usize, usize)>>() + owner.statement_positions.foreign.len() * size_of::<(usize, (usize, usize))>()
                     + owner.snapshot_predicates.borrow().values().map(|paths| size_of::<((usize, usize, usize, usize, bool, bool, ProducerBinding), Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.immutable_initializers.borrow().values().map(|values| size_of::<(ImmutableInitializerQuery, Vec<(Vec<Name>, (usize, bool))>)>() + values.capacity() * size_of::<(Vec<Name>, (usize, bool))>() + values.iter().map(|(path, _)| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
                     + owner.guard_scope_conditions.borrow().values().map(|paths| size_of::<(GuardScopeCondition, Vec<Vec<Name>>)>() + paths.capacity() * size_of::<Vec<Name>>() + paths.iter().map(|path| path.capacity() * size_of::<Name>()).sum::<usize>()).sum::<usize>()
@@ -2647,13 +2711,14 @@ pub(super) struct ProducerProof<'a> {
     contract_owners: rustc_hash::FxHashSet<u32>,
     expressions: InstructionTable<Vec<(Arc<Type>, bool)>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
-    operand_expansions: rustc_hash::FxHashSet<(u32, usize)>,
+    operand_expansions: InstructionTable<()>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
     slots: rustc_hash::FxHashMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     prefixes: rustc_hash::FxHashMap<(u32, usize, usize), Vec<Arc<Type>>>,
     storage: rustc_hash::FxHashMap<u32, Vec<(Arc<Type>, StorageContractRelation)>>,
     decoders: OwnerTable<Rc<FullDecoder<'a>>>,
     types: rustc_hash::FxHashMap<TypeId, Arc<Type>>,
+    names: rustc_hash::FxHashMap<(usize, usize), Name>,
     declared_types: InstructionTable<ProducerTypeDerivation>,
     driver_output_types: BTreeMap<usize, Rc<BTreeMap<u32, Arc<Type>>>>,
     pattern_types: rustc_hash::FxHashMap<(u32, ProducerBinding), Arc<Type>>,
@@ -2663,7 +2728,7 @@ pub(super) struct ProducerProof<'a> {
     deferred_sources: BTreeMap<(u32, ProducerBinding), usize>,
     contextual_reads: rustc_hash::FxHashMap<(u32, ProducerBinding), Vec<Arc<Type>>>,
     captured_errors: rustc_hash::FxHashMap<(u32, usize), CapturedErrorDerivation>,
-    runtime_checked_inputs: rustc_hash::FxHashSet<(u32, usize)>,
+    runtime_checked_inputs: InstructionTable<()>,
     scheme_applications: BTreeSet<(u32, usize)>,
     scheme_captures: rustc_hash::FxHashSet<(u32, usize)>,
     incoming: rustc_hash::FxHashMap<usize, Vec<usize>>,
@@ -3119,7 +3184,7 @@ impl ConditionalProducerType {
 
 impl<'a> ProducerProof<'a> {
     pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>, tables: Option<&'a super::super::VerificationTables<'a>>) -> Self {
-        let mut proof = Self { store, tables, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: rustc_hash::FxHashSet::default(), expressions: InstructionTable::new(store.tags.len()), conditions: BTreeSet::new(), operand_expansions: rustc_hash::FxHashSet::default(), pipeline_outputs: BTreeMap::new(), slots: rustc_hash::FxHashMap::default(), prefixes: rustc_hash::FxHashMap::default(), storage: rustc_hash::FxHashMap::default(), decoders: OwnerTable::new(), types: rustc_hash::FxHashMap::default(), declared_types: InstructionTable::new(store.tags.len()), driver_output_types: BTreeMap::new(), pattern_types: rustc_hash::FxHashMap::default(), binding_types: rustc_hash::FxHashMap::default(), fresh_lists: rustc_hash::FxHashMap::default(), contextual_sources: rustc_hash::FxHashMap::default(), deferred_sources: BTreeMap::new(), contextual_reads: rustc_hash::FxHashMap::default(), captured_errors: rustc_hash::FxHashMap::default(), runtime_checked_inputs: rustc_hash::FxHashSet::default(), scheme_applications: applications, scheme_captures: rustc_hash::FxHashSet::default(), incoming: rustc_hash::FxHashMap::default(), incoming_arguments: rustc_hash::FxHashSet::default(), callable_targets: rustc_hash::FxHashMap::default(), callable_target_incoming_reads: rustc_hash::FxHashSet::default(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        let mut proof = Self { store, tables, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: rustc_hash::FxHashSet::default(), expressions: InstructionTable::new(store.tags.len()), conditions: BTreeSet::new(), operand_expansions: InstructionTable::new(store.tags.len()), pipeline_outputs: BTreeMap::new(), slots: rustc_hash::FxHashMap::default(), prefixes: rustc_hash::FxHashMap::default(), storage: rustc_hash::FxHashMap::default(), decoders: OwnerTable::new(), types: rustc_hash::FxHashMap::default(), names: rustc_hash::FxHashMap::default(), declared_types: InstructionTable::new(store.tags.len()), driver_output_types: BTreeMap::new(), pattern_types: rustc_hash::FxHashMap::default(), binding_types: rustc_hash::FxHashMap::default(), fresh_lists: rustc_hash::FxHashMap::default(), contextual_sources: rustc_hash::FxHashMap::default(), deferred_sources: BTreeMap::new(), contextual_reads: rustc_hash::FxHashMap::default(), captured_errors: rustc_hash::FxHashMap::default(), runtime_checked_inputs: InstructionTable::new(store.tags.len()), scheme_applications: applications, scheme_captures: rustc_hash::FxHashSet::default(), incoming: rustc_hash::FxHashMap::default(), incoming_arguments: rustc_hash::FxHashSet::default(), callable_targets: rustc_hash::FxHashMap::default(), callable_target_incoming_reads: rustc_hash::FxHashSet::default(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
@@ -3358,6 +3423,10 @@ impl<'a> ProducerProof<'a> {
         ensure_substitution_type(&ty).map_err(|error| IrVerifyError::new(format!("{}: ground producer type {ty}", error.message)))?;
         self.types.insert(id, Arc::clone(&ty));
         Ok(ty)
+    }
+
+    fn interned_name(&mut self, text: &str) -> Name {
+        *self.names.entry((text.as_ptr() as usize, text.len())).or_insert_with(|| Name::intern(text))
     }
 
     fn contract_type(&mut self, id: TypeId) -> Result<Arc<Type>, IrVerifyError> {
@@ -3854,7 +3923,7 @@ impl<'a> ProducerProof<'a> {
                 | schema::ExprView::Int(_) | schema::ExprView::UInt(_) | schema::ExprView::Float(_)
                 | schema::ExprView::Str(_) | schema::ExprView::Bytes(_) | schema::ExprView::Duration(_)
                 | schema::ExprView::PreparedRegex(_) | schema::ExprView::Path(_) => {
-                    self.runtime_checked_inputs.insert((decoder.owner, instruction));
+                    self.runtime_checked_inputs.insert(decoder.owner, instruction, ());
                 }
                 _ => {}
             }
@@ -4332,10 +4401,11 @@ impl<'a> ProducerProof<'a> {
                         Type::Optional(payload) if self.optional_read_is_narrowed(decoder, receiver_instruction, &base)? => payload.unvalidated(),
                         receiver => receiver,
                     };
+                    let field = self.interned_name(name);
                     match receiver {
-                        Type::Record(fields) => return Ok(fields.get(&Name::intern(name)).cloned().map(Arc::new)),
-                        Type::Module(module) => return Ok(module.exports.get(&Name::intern(name)).and_then(crate::sema::types::ModuleExportType::field_value_type).map(Arc::new)),
-                        receiver => return Ok(crate::sema::check::Checker::fixed_field_type(receiver, Name::intern(name)).flatten().map(Arc::new)),
+                        Type::Record(fields) => return Ok(fields.get(&field).cloned().map(Arc::new)),
+                        Type::Module(module) => return Ok(module.exports.get(&field).and_then(crate::sema::types::ModuleExportType::field_value_type).map(Arc::new)),
+                        receiver => return Ok(crate::sema::check::Checker::fixed_field_type(receiver, field).flatten().map(Arc::new)),
                     }
                 }
                 None
@@ -5817,7 +5887,7 @@ impl<'a> ProducerProof<'a> {
                 self.budget.charge(decoder.instruction_range.len())?;
                 !super::super::indexed_expr_can_complete(&decoder, instruction, 0)?
             } else { false };
-            let runtime_checked_input = self.runtime_checked_inputs.contains(&(owner, instruction));
+            let runtime_checked_input = self.runtime_checked_inputs.contains(owner, instruction);
             let literal_map = matches!(view, schema::ExprView::MapLiteral(_))
                 && matches!((actual.unvalidated(), container.unvalidated()), (Type::Map(_, _), Type::Map(_, _)));
             if !fits && !noncompleting_result && !imported_callable_contract && !constructor_payload_contract && !validated_path_literal && !confined_path_format && !bounded_literal && !runtime_checked_input && !narrowed_read && !literal_list && !fresh_comprehension && !literal_record && !literal_map && !record_branches && !branch_verified_source && !checked_comprehension && contextual_list_source.is_none() && self.store.tags[instruction] != FullTag::ExprCapture {
@@ -6458,7 +6528,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::SpawnRun(run) => {
                 self.verify_spawn_result(&expected)?;
                 self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Process]), false)?;
-                if !self.operand_expansions.insert((owner, instruction)) { return Ok(()); }
+                if !self.operand_expansions.insert_new(owner, instruction, ()) { return Ok(()); }
                 if self.verify_process_run_operands(&decoder, run.operands)? {
                     self.require_callable_effects(&decoder, instruction, Some(&[crate::syntax::node::Effect::Error]), false)?;
                 }
@@ -6640,7 +6710,7 @@ impl<'a> ProducerProof<'a> {
                     other => other,
                 };
                 if tag_contract != &Type::Tag(type_name) { return Err(IrVerifyError::new("ground tag producer has an incompatible family contract")); }
-                let key = super::super::CheckedPatternVariantKey { kind: super::super::CheckedPatternVariantKind::Tag, owner: type_name, variant: Name::intern(name) };
+                let key = super::super::CheckedPatternVariantKey { kind: super::super::CheckedPatternVariantKind::Tag, owner: type_name, variant: self.interned_name(name) };
                 let layout = self.store.declared_pattern_variants.get(&key).ok_or_else(|| IrVerifyError::new("ground tag producer has no declared layout"))?;
                 let fields = (&mut fields).collect::<Result<Vec<_>, _>>()?;
                 if fields.len() != layout.fields.len() { return Err(IrVerifyError::new("ground tag producer disagrees with its declared payload count")); }
@@ -7263,7 +7333,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn verify_operands(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<(), IrVerifyError> {
-        if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
+        if !self.operand_expansions.insert_new(decoder.owner, instruction, ()) { return Ok(()); }
         let owner = &self.index.owners[&decoder.owner];
         let mut pending = Vec::new();
         let mut child = owner.children[instruction - owner.range.start];
@@ -7280,7 +7350,7 @@ impl<'a> ProducerProof<'a> {
                     self.expression_with_fact(decoder.owner, instruction, ty, false, fact);
                 }
                 schema::InstructionKind::Int | schema::InstructionKind::Bool => {
-                    if !self.operand_expansions.insert((decoder.owner, instruction)) { continue; }
+                    if !self.operand_expansions.insert_new(decoder.owner, instruction, ()) { continue; }
                     self.verify_scalar(decoder, instruction)?;
                     let mut child = owner.children[instruction - owner.range.start];
                     while child != IR_NONE { pending.push(child as usize); child = owner.siblings[child as usize - owner.range.start]; }
@@ -7891,7 +7961,7 @@ impl<'a> ProducerProof<'a> {
 
     fn verify_process_command_argv(&mut self, decoder: &FullDecoder<'a>, instruction: usize, command: super::super::decode::ProcessCommandArgvView<'_>, expected: &Type) -> Result<(), IrVerifyError> {
         self.verify_process_command_contract(decoder, instruction, expected)?;
-        if !self.operand_expansions.insert((decoder.owner, instruction)) { return Ok(()); }
+        if !self.operand_expansions.insert_new(decoder.owner, instruction, ()) { return Ok(()); }
         if let Some(actual) = self.scoped_expression_type(decoder, instruction)? {
             if actual != super::SchemeType::Ground(Type::Command) { return Err(IrVerifyError::new("generic command result disagrees with its native contract")); }
             let arguments = [Some(command.target), Some(command.argv), command.cwd, command.env, command.stdin,

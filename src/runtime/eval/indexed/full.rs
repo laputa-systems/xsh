@@ -17626,6 +17626,38 @@ impl IndexedReturnAnalysis {
         let mut subtree_state = vec![0u8; node_count];
         let mut subtree_has_try = vec![false; node_count];
         let mut stack = Vec::new();
+        let children_precede_parents = parents.iter().enumerate().all(|(local, parent)| parent.is_none_or(|parent| parent > local));
+        if children_precede_parents {
+            for local in 0..node_count {
+                #[cfg(test)]
+                {
+                    node_visits += 1;
+                }
+                let instruction = range.start + local;
+                let tag = decoder.store.tags[instruction];
+                let mut has_uncaught_try =
+                    !matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry)
+                        && tag == FullTag::ExprTry;
+                if !matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry)
+                    && !has_uncaught_try
+                {
+                    let first = child_offsets[local];
+                    for (child_index, child) in children(local).iter().enumerate() {
+                        if child_reachability[first + child_index]
+                            && subtree_has_try[*child - range.start]
+                        {
+                            has_uncaught_try = true;
+                            break;
+                        }
+                    }
+                }
+                subtree_has_try[local] = has_uncaught_try;
+                subtree_state[local] = 2;
+                if has_uncaught_try {
+                    uncaught_try_roots.insert(instruction);
+                }
+            }
+        }
         for root in 0..node_count {
             if subtree_state[root] != 0 {
                 continue;
@@ -17747,7 +17779,7 @@ impl IndexedReturnAnalysis {
                 let child = *child;
                 let child_reachable = reachable
                     && child_reachability[child_offsets[local] + child_index];
-                let next_loop = if callback_loop_boundary_roots.contains(&child) {
+                let next_loop = if !callback_loop_boundary_roots.is_empty() && callback_loop_boundary_roots.contains(&child) {
                     None
                 } else if matches!(
                     tag,
