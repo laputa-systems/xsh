@@ -5244,9 +5244,10 @@ impl FullBuilder {
             }
             statements.push((span, *lowered));
         }
+        let mut module_sources = FxHashMap::default();
         for (_, statement) in &statements {
             if let Some(statement) = statement {
-                self.validate_driver_imports(arena, *statement, allow_checker_only)?;
+                self.validate_driver_imports(arena, *statement, allow_checker_only, &mut module_sources)?;
             }
         }
         self.store.driver_root = self.encode_driver_program(
@@ -5276,6 +5277,7 @@ impl FullBuilder {
         arena: &ArenaProgram,
         statement: BuildTopStmtId,
         allow_checker_only: bool,
+        module_sources: &mut FxHashMap<usize, Rc<DriverImportSources>>,
     ) -> Result<(), IrBuildError> {
         let statement = self.build_top_stmt(statement)?;
         let BuildTopKind::Use {
@@ -5287,23 +5289,33 @@ impl FullBuilder {
         else {
             return Ok(());
         };
-        let module = arena
+        let module_index = arena
             .modules
             .iter()
-            .find(|module| module.key.as_str() == key.as_ref())
+            .position(|module| module.key.as_str() == key.as_ref())
             .ok_or_else(|| IrBuildError::format("driver_import_module", Some(*span), 0, 0))?;
+        let sources = Rc::clone(module_sources.entry(module_index).or_insert_with(|| {
+            let module = &arena.modules[module_index];
+            let mut spans = BTreeSet::new();
+            let mut required = Vec::new();
+            for source_statement in arena.module_statements(module) {
+                let source_span = arena.arena.stmt(source_statement).span;
+                spans.insert((source_span.source_id, source_span.start(), source_span.end()));
+                if !super::super::compact_top_level_stmt_is_skippable(
+                    arena,
+                    source_statement,
+                    allow_checker_only,
+                ) {
+                    required.push(source_span);
+                }
+            }
+            Rc::new(DriverImportSources { spans, required })
+        }));
         let lowered_spans = module_statements
             .iter()
             .map(|(span, _)| (span.source_id, span.start(), span.end()))
             .collect::<BTreeSet<_>>();
-        let source_spans = arena
-            .module_statements(module)
-            .map(|statement| {
-                let span = arena.arena.stmt(statement).span;
-                (span.source_id, span.start(), span.end())
-            })
-            .collect::<BTreeSet<_>>();
-        if lowered_spans.len() != module_statements.len() || !lowered_spans.is_subset(&source_spans)
+        if lowered_spans.len() != module_statements.len() || !lowered_spans.is_subset(&sources.spans)
         {
             return Err(IrBuildError::format(
                 "driver_import_statement",
@@ -5312,15 +5324,7 @@ impl FullBuilder {
                 0,
             ));
         }
-        for source_statement in arena.module_statements(module) {
-            if super::super::compact_top_level_stmt_is_skippable(
-                arena,
-                source_statement,
-                allow_checker_only,
-            ) {
-                continue;
-            }
-            let source_span = arena.arena.stmt(source_statement).span;
+        for &source_span in &sources.required {
             let key = (
                 source_span.source_id,
                 source_span.start(),
@@ -5336,7 +5340,7 @@ impl FullBuilder {
             }
         }
         for (_, module_statement) in module_statements {
-            self.validate_driver_imports(arena, *module_statement, allow_checker_only)?;
+            self.validate_driver_imports(arena, *module_statement, allow_checker_only, module_sources)?;
         }
         Ok(())
     }
@@ -6281,6 +6285,11 @@ impl FullBuilder {
         self.binding_identity_ids
             .retain(|_, id| (*id as usize) < checkpoint.binding_identities);
     }
+}
+
+struct DriverImportSources {
+    spans: BTreeSet<(SourceId, usize, usize)>,
+    required: Vec<Span>,
 }
 
 fn table_range(start: usize, end: usize) -> Result<IrRange, IrBuildError> {
