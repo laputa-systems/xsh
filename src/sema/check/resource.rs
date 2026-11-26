@@ -95,7 +95,7 @@ fn check_scopes<'a>(
         diagnosed: FxHashSet::default(),
         cancel_calls: std::cell::OnceCell::new(),
         value_sites_by_binding: std::cell::OnceCell::new(),
-        declaration_sites_by_span: std::cell::OnceCell::new(),
+        declaration_sites_by_source: std::cell::RefCell::default(),
     }
     .run()
 }
@@ -118,7 +118,7 @@ struct Analyzer<'a> {
     // visited.
     cancel_calls: std::cell::OnceCell<Vec<CancelCall>>,
     value_sites_by_binding: std::cell::OnceCell<FxHashMap<BindingId, Vec<ValueSite>>>,
-    declaration_sites_by_span: std::cell::OnceCell<FxHashMap<Span, Vec<BindingId>>>,
+    declaration_sites_by_source: std::cell::RefCell<FxHashMap<crate::source::SourceId, std::rc::Rc<FxHashMap<Span, Vec<BindingId>>>>>,
 }
 
 /// A `cancel` call on a process handle whose receiver is a bare identifier
@@ -230,17 +230,12 @@ impl Analyzer<'_> {
                 _ => None,
             })
             .collect::<FxHashSet<_>>();
-        let declared_bindings = if declaration_spans.is_empty() {
-            FxHashSet::default()
-        } else {
-            let sites = self.declaration_sites_by_span();
-            declaration_spans
-                .iter()
-                .filter_map(|span| sites.get(span))
-                .flatten()
-                .copied()
-                .collect::<FxHashSet<_>>()
-        };
+        let mut declared_bindings = FxHashSet::default();
+        for span in &declaration_spans {
+            if let Some(bindings) = self.declaration_sites_in(span.source_id).get(span) {
+                declared_bindings.extend(bindings.iter().copied());
+            }
+        }
         let locals = statements
             .iter()
             .filter_map(|&stmt| self.local_resource(stmt))
@@ -275,14 +270,19 @@ impl Analyzer<'_> {
 
     }
 
-    fn declaration_sites_by_span(&self) -> &FxHashMap<Span, Vec<BindingId>> {
-        self.declaration_sites_by_span.get_or_init(|| {
-            let mut sites = FxHashMap::<Span, Vec<BindingId>>::default();
-            for (&(span, _), &binding) in &self.checker.resolved_bindings.declaration_sites {
+    fn declaration_sites_in(&self, source: crate::source::SourceId) -> std::rc::Rc<FxHashMap<Span, Vec<BindingId>>> {
+        if let Some(sites) = self.declaration_sites_by_source.borrow().get(&source) {
+            return std::rc::Rc::clone(sites);
+        }
+        let mut sites = FxHashMap::<Span, Vec<BindingId>>::default();
+        for (&(span, _), &binding) in &self.checker.resolved_bindings.declaration_sites {
+            if span.source_id == source {
                 sites.entry(span).or_default().push(binding);
             }
-            sites
-        })
+        }
+        let sites = std::rc::Rc::new(sites);
+        self.declaration_sites_by_source.borrow_mut().insert(source, std::rc::Rc::clone(&sites));
+        sites
     }
 
     fn value_sites_by_binding(&self) -> &FxHashMap<BindingId, Vec<ValueSite>> {
@@ -1003,6 +1003,41 @@ mod tests {
     }
 
     #[test]
+    fn declaration_sites_index_each_source_like_the_whole_table() {
+        let source = "let first = 1\nvar second = 2\nlet { third, fourth } = { third: 3, fourth: 4 }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        program.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::for_execution());
+            let mut bindings = super::super::ResolvedBindings::collect(program);
+            let copied = bindings.declaration_sites.iter()
+                .map(|(&(span, name), &binding)| ((Span::new(SourceId::new(1), span.start(), span.end()), name), binding))
+                .collect::<Vec<_>>();
+            bindings.declaration_sites.extend(copied);
+            checker.resolved_bindings = std::sync::Arc::new(bindings);
+            let analyzer = Analyzer {
+                checker: &checker, program, root_statements: program.statements, modules: Vec::new(),
+                blocks: FxHashSet::default(), diagnostics: Vec::new(), transfers: FxHashMap::default(),
+                same_scope_assignments: FxHashSet::default(), suppressed_body_transfers: FxHashMap::default(),
+                scheme_body_resource_facts: FxHashMap::default(), diagnosed: FxHashSet::default(),
+                cancel_calls: std::cell::OnceCell::new(), value_sites_by_binding: std::cell::OnceCell::new(),
+                declaration_sites_by_source: std::cell::RefCell::default(),
+            };
+            for source in [0, 1, 2].map(SourceId::new) {
+                let mut whole = FxHashMap::<Span, Vec<BindingId>>::default();
+                for (&(span, _), &binding) in &checker.resolved_bindings.declaration_sites {
+                    if span.source_id == source { whole.entry(span).or_default().push(binding); }
+                }
+                let indexed = analyzer.declaration_sites_in(source);
+                assert_eq!(*indexed, whole);
+                assert!(std::rc::Rc::ptr_eq(&indexed, &analyzer.declaration_sites_in(source)));
+            }
+            assert!(!analyzer.declaration_sites_in(SourceId::new(0)).is_empty());
+        });
+    }
+
+    #[test]
     fn structured_return_resource_publication_requires_every_checked_leaf() {
         let source = concat!(
             "pure number(value: Int) -> Int { value }\n",
@@ -1052,7 +1087,7 @@ mod tests {
                 same_scope_assignments: FxHashSet::default(), suppressed_body_transfers: FxHashMap::default(),
                 scheme_body_resource_facts: resource_facts, diagnosed: FxHashSet::default(),
                 cancel_calls: std::cell::OnceCell::new(), value_sites_by_binding: std::cell::OnceCell::new(),
-                declaration_sites_by_span: std::cell::OnceCell::new(),
+                declaration_sites_by_source: std::cell::RefCell::default(),
             };
             assert!(!analyzer.scheme_body_resource_facts.contains_key(&control_span));
             analyzer.publish_statement_transfer(returned, &program.arena.stmt_kind(returned), &FxHashSet::default());

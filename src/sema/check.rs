@@ -1095,7 +1095,7 @@ pub(super) struct FunctionSig {
     scheme: Arc<super::schemes::TypeScheme>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct FunctionDeclarationId(EffectDeclarationId);
 
 impl FunctionDeclarationId {
@@ -1451,7 +1451,9 @@ pub(super) enum DeclarationInferenceState {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct DeclarationInference {
-    states: BTreeMap<FunctionDeclarationId, DeclarationInferenceState>,
+    states: Vec<(FunctionDeclarationId, DeclarationInferenceState)>,
+    slots: FxHashMap<FunctionDeclarationId, u32>,
+    ordered_slots: Vec<u32>,
 }
 
 impl DeclarationInference {
@@ -1460,16 +1462,26 @@ impl DeclarationInference {
         id: FunctionDeclarationId,
         signature: PendingFunctionSig,
     ) {
+        let slot = u32::try_from(self.states.len()).expect("declaration inference slot overflow");
         assert!(
-            self.states
-                .insert(id, DeclarationInferenceState::Pending(signature))
-                .is_none(),
+            self.slots.insert(id, slot).is_none(),
             "a function declaration enters inference once"
         );
+        self.states.push((id, DeclarationInferenceState::Pending(signature)));
+        let position = self.ordered_slots.partition_point(|&other| self.states[other as usize].0 < id);
+        self.ordered_slots.insert(position, slot);
+    }
+
+    fn state(&self, id: FunctionDeclarationId) -> Option<&DeclarationInferenceState> {
+        self.slots.get(&id).map(|&slot| &self.states[slot as usize].1)
+    }
+
+    fn state_mut(&mut self, id: FunctionDeclarationId) -> Option<&mut DeclarationInferenceState> {
+        self.slots.get(&id).map(|&slot| &mut self.states[slot as usize].1)
     }
 
     pub(super) fn pending(&self, id: FunctionDeclarationId) -> Option<&PendingFunctionSig> {
-        match self.states.get(&id)? {
+        match self.state(id)? {
             DeclarationInferenceState::Pending(signature) => Some(signature),
             DeclarationInferenceState::Checked(_) => None,
         }
@@ -1479,14 +1491,14 @@ impl DeclarationInference {
         &mut self,
         id: FunctionDeclarationId,
     ) -> Option<&mut PendingFunctionSig> {
-        match self.states.get_mut(&id)? {
+        match self.state_mut(id)? {
             DeclarationInferenceState::Pending(signature) => Some(signature),
             DeclarationInferenceState::Checked(_) => None,
         }
     }
 
     pub(super) fn checked(&self, id: FunctionDeclarationId) -> Option<&FunctionSig> {
-        match self.states.get(&id)? {
+        match self.state(id)? {
             DeclarationInferenceState::Pending(_) => None,
             DeclarationInferenceState::Checked(signature) => Some(signature),
         }
@@ -1497,7 +1509,7 @@ impl DeclarationInference {
         id: FunctionDeclarationId,
         signature: FunctionSig,
     ) -> Result<(), FunctionSig> {
-        match self.states.get_mut(&id) {
+        match self.state_mut(id) {
             Some(state @ DeclarationInferenceState::Pending(_)) => {
                 *state = DeclarationInferenceState::Checked(signature);
                 Ok(())
@@ -1509,7 +1521,8 @@ impl DeclarationInference {
     pub(super) fn pending_iter_mut(
         &mut self,
     ) -> impl Iterator<Item = &mut PendingFunctionSig> {
-        self.states.values_mut().filter_map(|state| match state {
+        let mut states = self.states.iter_mut().map(|(_, state)| Some(state)).collect::<Vec<_>>();
+        self.ordered_slots.iter().filter_map(move |&slot| match states[slot as usize].take()? {
             DeclarationInferenceState::Pending(signature) => Some(signature),
             DeclarationInferenceState::Checked(_) => None,
         })
@@ -1518,10 +1531,60 @@ impl DeclarationInference {
     pub(super) fn pending_entries(
         &self,
     ) -> impl Iterator<Item = (FunctionDeclarationId, &PendingFunctionSig)> {
-        self.states.iter().filter_map(|(id, state)| match state {
-            DeclarationInferenceState::Pending(signature) => Some((*id, signature)),
-            DeclarationInferenceState::Checked(_) => None,
+        self.ordered_slots.iter().filter_map(|&slot| match &self.states[slot as usize] {
+            (id, DeclarationInferenceState::Pending(signature)) => Some((*id, signature)),
+            (_, DeclarationInferenceState::Checked(_)) => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod declaration_inference_tests {
+    use super::{DeclarationInference, EffectDeclarationId, FunctionDeclarationId, PendingCallable, PendingFunctionSig, TypeAuthority};
+    use crate::source::{SourceId, Span};
+    use std::collections::BTreeMap;
+
+    fn pending_signature() -> PendingFunctionSig {
+        PendingFunctionSig {
+            kind: crate::sema::types::CallableKind::Pure,
+            exported: false,
+            effect_declaration: None,
+            is_alias: false,
+            definition: None,
+            definition_target: None,
+            solver_level: 1,
+            return_authority: TypeAuthority::Explicit,
+            body_checked: false,
+            constructor_instances: BTreeMap::new(),
+            callable: PendingCallable::Rejected,
+        }
+    }
+
+    #[test]
+    fn declaration_states_resolve_by_identity_and_iterate_in_identity_order() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let body = |start| Span::new(SourceId::new(0), start, start + 1);
+        let ids = [
+            EffectDeclarationId { namespace: Some(owner.intern("zeta_declarations")), body: body(1) },
+            EffectDeclarationId { namespace: None, body: body(9) },
+            EffectDeclarationId { namespace: Some(owner.intern("alpha_declarations")), body: body(5) },
+            EffectDeclarationId { namespace: None, body: body(2) },
+            EffectDeclarationId { namespace: Some(owner.intern("alpha_declarations")), body: body(3) },
+        ].map(FunctionDeclarationId::new);
+        let mut inference = DeclarationInference::default();
+        for id in ids { inference.insert_pending(id, pending_signature()); }
+        let mut sorted = ids;
+        sorted.sort();
+        assert_eq!(inference.pending_entries().map(|(id, _)| id).collect::<Vec<_>>(), sorted);
+        for (level, signature) in inference.pending_iter_mut().enumerate() {
+            signature.solver_level = u32::try_from(level).unwrap() + 10;
+        }
+        for (level, id) in sorted.into_iter().enumerate() {
+            assert_eq!(inference.pending(id).map(PendingFunctionSig::solver_level), Some(u32::try_from(level).unwrap() + 10));
+            assert!(inference.checked(id).is_none());
+        }
+        let absent = FunctionDeclarationId::new(EffectDeclarationId { namespace: None, body: body(7) });
+        assert!(inference.pending(absent).is_none() && inference.pending_mut(absent).is_none() && inference.checked(absent).is_none());
     }
 }
 
@@ -1917,7 +1980,7 @@ pub struct Checker {
     call_splice_item_contexts: Option<args::CallSpliceItemContexts>,
     record_constructors: RecordConstructors,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
-    checked_schema_origins: BTreeMap<Span, super::constants::SchemaExpectation>,
+    checked_schema_origins: FxHashMap<Span, super::constants::SchemaExpectation>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
@@ -2365,7 +2428,7 @@ impl Checker {
             call_splice_item_contexts: None,
             record_constructors: RecordConstructors::default(),
             record_constructor_instances: BTreeMap::new(),
-            checked_schema_origins: BTreeMap::new(),
+            checked_schema_origins: FxHashMap::default(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
