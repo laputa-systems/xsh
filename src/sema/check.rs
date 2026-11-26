@@ -538,11 +538,30 @@ impl CheckedControlFlowFacts {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct PreparedBindings {
+    base: std::sync::Weak<ResolvedBindings>,
+    command_sites: BTreeMap<(Span, Name), BindingId>,
+}
+
+impl PreparedBindings {
+    pub(super) fn new(base: &Arc<ResolvedBindings>) -> Self {
+        Self { base: Arc::downgrade(base), command_sites: BTreeMap::new() }
+    }
+
+    fn is_base_of(&self, bindings: &Arc<ResolvedBindings>) -> bool {
+        self.base.upgrade().is_some_and(|base| {
+            Arc::ptr_eq(bindings, &base) || bindings.extends_with_command_sites(&base, &self.command_sites)
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
     pub checked_declarations: CheckedDeclarations,
     pub resolved_type_expressions: ResolvedTypeExpressions,
     pub resolved_bindings: Arc<ResolvedBindings>,
+    prepared_bindings: Option<PreparedBindings>,
     assignment_facts: assignment_facts::AssignmentFacts,
     pub(crate) function_body_check_entries: usize,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
@@ -685,14 +704,52 @@ impl CheckOutput {
         self.resource_transfers.get(&site).copied()
     }
 
+    fn merge_module_bindings(&mut self, module: &Self) {
+        #[cfg(test)]
+        let expected = {
+            let mut full = (*self.resolved_bindings).clone();
+            full.merge_visible_in_place(&module.resolved_bindings);
+            full
+        };
+        let own_entries_only = match (&self.prepared_bindings, &module.prepared_bindings) {
+            (Some(entry), Some(module_origin))
+                if entry.is_base_of(&self.resolved_bindings)
+                    && module_origin.is_base_of(&module.resolved_bindings) =>
+            {
+                Some(module_origin)
+            }
+            _ => None,
+        };
+        match own_entries_only {
+            Some(prepared) => {
+                if !prepared.command_sites.is_empty() {
+                    Arc::make_mut(&mut self.resolved_bindings)
+                        .merge_command_sites(&prepared.command_sites);
+                    if let Some(entry) = &mut self.prepared_bindings {
+                        entry.command_sites.extend(prepared.command_sites.iter().map(|(&key, &id)| (key, id)));
+                    }
+                }
+            }
+            None => {
+                self.prepared_bindings = None;
+                Arc::make_mut(&mut self.resolved_bindings)
+                    .merge_visible_in_place(&module.resolved_bindings);
+            }
+        }
+        #[cfg(test)]
+        assert!(
+            self.resolved_bindings.same_facts(&expected),
+            "module bindings merged by their own entries differ from the full merge"
+        );
+    }
+
     pub(super) fn merge_module_facts(&mut self, mut module: Self) {
         // Each checked module owns command-word bindings resolved from its body.
         // The entry record already owns aggregate constructor facts; module records
         // also carry dependency views that would publish their instances repeatedly.
         self.prepared_constants
             .merge_cli_plan_facts(&module.prepared_constants);
-        Arc::make_mut(&mut self.resolved_bindings)
-            .merge_visible_in_place(&module.resolved_bindings);
+        self.merge_module_bindings(&module);
         self.assignment_facts.merge(&module.assignment_facts);
         self.checked_declarations
             .types
@@ -1836,6 +1893,7 @@ pub struct Checker {
     checked_declarations: CheckedDeclarations,
     resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
+    prepared_bindings: Option<PreparedBindings>,
     assignment_facts: assignment_facts::AssignmentFacts,
     resolved_command_sites: BTreeMap<(Span, Name), BindingId>,
     boundary: BoundaryContext,
@@ -2187,6 +2245,7 @@ impl Checker {
             call_instantiations: self.call_instantiations,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
+            prepared_bindings: self.prepared_bindings,
             assignment_facts: self.assignment_facts,
             function_body_check_entries: self.function_body_check_entries,
             prepared_constants: self.prepared_constants,
@@ -2312,6 +2371,7 @@ impl Checker {
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
             resolved_bindings: Arc::default(),
+            prepared_bindings: None,
             assignment_facts: assignment_facts::AssignmentFacts::default(),
             resolved_command_sites: BTreeMap::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
@@ -2879,6 +2939,9 @@ impl Checker {
     fn publish_command_binding_sites(&mut self) {
         let sites = std::mem::take(&mut self.resolved_command_sites);
         if !sites.is_empty() {
+            if let Some(prepared) = &mut self.prepared_bindings {
+                prepared.command_sites.extend(sites.iter().map(|(&key, &id)| (key, id)));
+            }
             Arc::make_mut(&mut self.resolved_bindings).value_sites.extend(sites);
         }
     }

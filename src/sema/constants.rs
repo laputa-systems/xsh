@@ -2953,19 +2953,17 @@ impl PreparedConstants {
             view,
             constructors,
             bindings,
+            bindings,
             &Self::default(),
         )
         .0
     }
 
-    pub(super) fn collect_bundle_with_visible_and_diagnostics(
+    fn view_constant_statements(
         view: &CheckBundleView<'_>,
-        constructors: &RecordConstructors,
         bindings: &crate::sema::check::ResolvedBindings,
-        visible_constants: &Self,
-    ) -> (Self, Vec<crate::diagnostic::Diagnostic>) {
-        let program = view.program;
-        let arena = &program.arena;
+    ) -> Vec<StmtId> {
+        let arena = &view.program.arena;
         let mut statements = bindings.declarations.values().filter_map(|declaration| {
             if let crate::sema::check::BindingKind::Constant(statement) = declaration.kind {
                 view.contains_source(arena.stmt_span(statement).source_id).then_some(statement)
@@ -2973,6 +2971,38 @@ impl PreparedConstants {
         }).collect::<Vec<_>>();
         statements.sort_unstable();
         statements.dedup();
+        statements
+    }
+
+    fn view_references(
+        view: &CheckBundleView<'_>,
+        bindings: &crate::sema::check::ResolvedBindings,
+    ) -> Vec<ExprId> {
+        let arena = &view.program.arena;
+        let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
+            view.contains_source(arena.expr_span(id).source_id)
+                && matches!(arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+        }).collect::<Vec<_>>();
+        references.sort_unstable();
+        references
+    }
+
+    pub(super) fn collect_bundle_with_visible_and_diagnostics(
+        view: &CheckBundleView<'_>,
+        constructors: &RecordConstructors,
+        bindings: &crate::sema::check::ResolvedBindings,
+        owner_bindings: &crate::sema::check::ResolvedBindings,
+        visible_constants: &Self,
+    ) -> (Self, Vec<crate::diagnostic::Diagnostic>) {
+        let program = view.program;
+        let arena = &program.arena;
+        let statements = Self::view_constant_statements(view, owner_bindings);
+        #[cfg(test)]
+        assert_eq!(
+            statements,
+            Self::view_constant_statements(view, bindings),
+            "owner constants differ from the visible constants of the view"
+        );
         let mut preparation = ConstantPreparation {
             program, constructors, bindings,
             active: FxHashSet::default(), prepared: visible_constants.clone(), steps: 0,
@@ -2992,11 +3022,13 @@ impl PreparedConstants {
         let has_visible_constants = !preparation.prepared.values.is_empty()
             || !preparation.prepared.diagnostics.is_empty();
         if has_visible_constants {
-            let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
-                view.contains_source(arena.expr_span(id).source_id)
-                    && matches!(arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
-            }).collect::<Vec<_>>();
-            references.sort_unstable();
+            let references = Self::view_references(view, owner_bindings);
+            #[cfg(test)]
+            assert_eq!(
+                references,
+                Self::view_references(view, bindings),
+                "owner references differ from the visible references of the view"
+            );
             for id in references {
                 preparation.steps = 0;
                 if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
@@ -3004,7 +3036,7 @@ impl PreparedConstants {
                     preparation.prepared.values.insert(id, value);
                 }
             }
-            for &id in bindings.declarations.keys() {
+            for &id in owner_bindings.declarations.keys() {
                 if let Some(statement) = bindings.constant(id)
                     && view.contains_source(arena.stmt_span(statement).source_id)
                     && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt_kind(statement)

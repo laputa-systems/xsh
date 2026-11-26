@@ -1,5 +1,6 @@
 use super::{CheckBundleView, FxHashMap, FxHashSet, Name, Span, assignment_facts::AssignmentFacts};
 use crate::source::SourceId;
+use std::collections::BTreeMap;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
     ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaStmtKind, ArenaSugarOperand, ArenaTypeDefBody,
@@ -149,6 +150,57 @@ impl ResolvedBindings {
             &mut merged.expression_namespaces,
             &other.expression_namespaces,
         );
+    }
+
+    pub(super) fn merge_command_sites(&mut self, sites: &BTreeMap<(Span, Name), BindingId>) {
+        for (&key, &value) in sites {
+            if let Some(existing) = self.value_sites.get(&key) {
+                assert_eq!(
+                    *existing, value,
+                    "binding fact {key:?} has conflicting owner records"
+                );
+            } else {
+                self.value_sites.insert(key, value);
+            }
+        }
+    }
+
+    pub(super) fn extends_with_command_sites(
+        &self,
+        base: &Self,
+        sites: &BTreeMap<(Span, Name), BindingId>,
+    ) -> bool {
+        self.declarations.len() == base.declarations.len()
+            && self.declaration_sites.len() == base.declaration_sites.len()
+            && self.expressions.len() == base.expressions.len()
+            && self.tails.len() == base.tails.len()
+            && self.immutable_value_sources.len() == base.immutable_value_sources.len()
+            && self.expression_namespaces.len() == base.expression_namespaces.len()
+            && self.value_sites.len()
+                == base.value_sites.len()
+                    + sites.keys().filter(|key| !base.value_sites.contains_key(key)).count()
+    }
+
+    #[cfg(test)]
+    pub(super) fn same_facts(&self, other: &Self) -> bool {
+        fn same<K: Eq + std::hash::Hash, V: std::fmt::Debug>(
+            left: &FxHashMap<K, V>,
+            right: &FxHashMap<K, V>,
+        ) -> bool {
+            left.len() == right.len()
+                && left.iter().all(|(key, value)| {
+                    right
+                        .get(key)
+                        .is_some_and(|other| format!("{value:?}") == format!("{other:?}"))
+                })
+        }
+        same(&self.declarations, &other.declarations)
+            && same(&self.declaration_sites, &other.declaration_sites)
+            && same(&self.expressions, &other.expressions)
+            && same(&self.tails, &other.tails)
+            && same(&self.value_sites, &other.value_sites)
+            && same(&self.immutable_value_sources, &other.immutable_value_sources)
+            && same(&self.expression_namespaces, &other.expression_namespaces)
     }
 
     pub(super) fn resolve_owner_module_fields(
