@@ -3425,7 +3425,7 @@ impl<'a> ProducerProof<'a> {
         Ok(ty)
     }
 
-    fn interned_name(&mut self, text: &str) -> Name {
+    fn interned_name(&mut self, text: &'a str) -> Name {
         *self.names.entry((text.as_ptr() as usize, text.len())).or_insert_with(|| Name::intern(text))
     }
 
