@@ -84,6 +84,49 @@ impl<T> std::ops::Index<&u32> for OwnerTable<T> {
     }
 }
 
+fn same_type(left: &Arc<Type>, right: &Arc<Type>) -> bool {
+    Arc::ptr_eq(left, right) || left == right
+}
+
+struct InstructionTable<T> {
+    dense: Vec<Option<(u32, T)>>,
+    displaced: rustc_hash::FxHashMap<(u32, usize), T>,
+}
+
+impl<T> InstructionTable<T> {
+    fn new(instructions: usize) -> Self {
+        Self { dense: std::iter::repeat_with(|| None).take(instructions).collect(), displaced: rustc_hash::FxHashMap::default() }
+    }
+
+    fn get(&self, owner: u32, instruction: usize) -> Option<&T> {
+        match self.dense.get(instruction) {
+            Some(Some((resident, value))) if *resident == owner => Some(value),
+            Some(None) => None,
+            _ => self.displaced.get(&(owner, instruction)),
+        }
+    }
+
+    fn contains(&self, owner: u32, instruction: usize) -> bool {
+        self.get(owner, instruction).is_some()
+    }
+
+    fn insert(&mut self, owner: u32, instruction: usize, value: T) {
+        match self.dense.get_mut(instruction) {
+            Some(slot @ None) => *slot = Some((owner, value)),
+            Some(Some((resident, resident_value))) if *resident == owner => *resident_value = value,
+            _ => { self.displaced.insert((owner, instruction), value); }
+        }
+    }
+
+    fn get_or_default(&mut self, owner: u32, instruction: usize) -> &mut T where T: Default {
+        match self.dense.get_mut(instruction) {
+            Some(slot @ None) => &mut slot.insert((owner, T::default())).1,
+            Some(Some((resident, value))) if *resident == owner => value,
+            _ => self.displaced.entry((owner, instruction)).or_default(),
+        }
+    }
+}
+
 pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
     demand: crate::runtime::eval::ProducerDemand,
     scheme_scopes: OnceCell<super::VerifiedSchemeScopes>,
@@ -2597,7 +2640,7 @@ pub(super) struct ProducerProof<'a> {
     pending: Vec<Obligation>,
     functions: BTreeSet<usize>,
     contract_owners: rustc_hash::FxHashSet<u32>,
-    expressions: rustc_hash::FxHashMap<(u32, usize), Vec<(Arc<Type>, bool)>>,
+    expressions: InstructionTable<Vec<(Arc<Type>, bool)>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: rustc_hash::FxHashSet<(u32, usize)>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
@@ -2606,7 +2649,7 @@ pub(super) struct ProducerProof<'a> {
     storage: rustc_hash::FxHashMap<u32, Vec<(Arc<Type>, StorageContractRelation)>>,
     decoders: OwnerTable<Rc<FullDecoder<'a>>>,
     types: rustc_hash::FxHashMap<TypeId, Arc<Type>>,
-    declared_types: rustc_hash::FxHashMap<(u32, usize), ProducerTypeDerivation>,
+    declared_types: InstructionTable<ProducerTypeDerivation>,
     driver_output_types: BTreeMap<usize, Rc<BTreeMap<u32, Arc<Type>>>>,
     pattern_types: rustc_hash::FxHashMap<(u32, ProducerBinding), Arc<Type>>,
     binding_types: rustc_hash::FxHashMap<(u32, ProducerBinding, usize), Option<Arc<Type>>>,
@@ -2909,7 +2952,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
     for (owner, instruction) in deferred_method_roots {
         proof.budget.charge(1)?;
         if scheme_methods.remove(&(owner, instruction)) { continue; }
-        let contexts = proof.expressions.get(&(owner, instruction));
+        let contexts = proof.expressions.get(owner, instruction);
         proof.budget.charge(contexts.map_or(0, Vec::len))?;
         if contexts.is_some_and(|contexts| contexts.iter().any(|(expected, _)| !matches!(expected.unvalidated(), Type::Any))) {
             continue;
@@ -2941,7 +2984,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         proof.finish()?;
         for (owner, instruction) in seeded_method_roots {
             proof.budget.charge(1)?;
-            let contexts = proof.expressions.get(&(owner, instruction));
+            let contexts = proof.expressions.get(owner, instruction);
             proof.budget.charge(contexts.map_or(0, Vec::len))?;
             if contexts.is_some_and(|contexts| contexts.iter().any(|(expected, _)| !matches!(expected.unvalidated(), Type::Any))) {
                 continue;
@@ -3071,7 +3114,7 @@ impl ConditionalProducerType {
 
 impl<'a> ProducerProof<'a> {
     pub(super) fn new(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>, applications: BTreeSet<(u32, usize)>, tables: Option<&'a super::super::VerificationTables<'a>>) -> Self {
-        let mut proof = Self { store, tables, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: rustc_hash::FxHashSet::default(), expressions: rustc_hash::FxHashMap::default(), conditions: BTreeSet::new(), operand_expansions: rustc_hash::FxHashSet::default(), pipeline_outputs: BTreeMap::new(), slots: rustc_hash::FxHashMap::default(), prefixes: rustc_hash::FxHashMap::default(), storage: rustc_hash::FxHashMap::default(), decoders: OwnerTable::new(), types: rustc_hash::FxHashMap::default(), declared_types: rustc_hash::FxHashMap::default(), driver_output_types: BTreeMap::new(), pattern_types: rustc_hash::FxHashMap::default(), binding_types: rustc_hash::FxHashMap::default(), fresh_lists: rustc_hash::FxHashMap::default(), contextual_sources: rustc_hash::FxHashMap::default(), deferred_sources: BTreeMap::new(), contextual_reads: rustc_hash::FxHashMap::default(), captured_errors: rustc_hash::FxHashMap::default(), runtime_checked_inputs: rustc_hash::FxHashSet::default(), scheme_applications: applications, scheme_captures: rustc_hash::FxHashSet::default(), incoming: rustc_hash::FxHashMap::default(), incoming_arguments: rustc_hash::FxHashSet::default(), callable_targets: rustc_hash::FxHashMap::default(), callable_target_incoming_reads: rustc_hash::FxHashSet::default(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+        let mut proof = Self { store, tables, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), contract_owners: rustc_hash::FxHashSet::default(), expressions: InstructionTable::new(store.tags.len()), conditions: BTreeSet::new(), operand_expansions: rustc_hash::FxHashSet::default(), pipeline_outputs: BTreeMap::new(), slots: rustc_hash::FxHashMap::default(), prefixes: rustc_hash::FxHashMap::default(), storage: rustc_hash::FxHashMap::default(), decoders: OwnerTable::new(), types: rustc_hash::FxHashMap::default(), declared_types: InstructionTable::new(store.tags.len()), driver_output_types: BTreeMap::new(), pattern_types: rustc_hash::FxHashMap::default(), binding_types: rustc_hash::FxHashMap::default(), fresh_lists: rustc_hash::FxHashMap::default(), contextual_sources: rustc_hash::FxHashMap::default(), deferred_sources: BTreeMap::new(), contextual_reads: rustc_hash::FxHashMap::default(), captured_errors: rustc_hash::FxHashMap::default(), runtime_checked_inputs: rustc_hash::FxHashSet::default(), scheme_applications: applications, scheme_captures: rustc_hash::FxHashSet::default(), incoming: rustc_hash::FxHashMap::default(), incoming_arguments: rustc_hash::FxHashSet::default(), callable_targets: rustc_hash::FxHashMap::default(), callable_target_incoming_reads: rustc_hash::FxHashSet::default(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
         if index.demand == crate::runtime::eval::ProducerDemand::Needed {
             for call in &store.checked_call_targets {
                 if matches!(store.tags[call.instruction as usize], FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
@@ -3355,7 +3398,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn expression_with_fact(&mut self, owner: u32, instruction: usize, expected: Arc<Type>, returned: bool, fact: Option<DeclaredProducerFact>) {
-        let previous = self.expressions.entry((owner, instruction)).or_default();
+        let previous = self.expressions.get_or_default(owner, instruction);
         if previous.iter().any(|(ty, transport)| *transport == returned && (Arc::ptr_eq(ty, &expected) || **ty == *expected)) { return; }
         previous.push((Arc::clone(&expected), returned));
         self.pending.push(Obligation::Expression(owner, instruction, expected, returned, fact));
@@ -3444,15 +3487,14 @@ impl<'a> ProducerProof<'a> {
 
     fn declared_type_evidence(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<(Option<Arc<Type>>, Option<DeclaredParamBinding>), IrVerifyError> {
         self.budget.charge(1)?;
-        let key = (decoder.owner, instruction);
-        if let Some(derivation) = self.declared_types.get(&key) {
+        if let Some(derivation) = self.declared_types.get(decoder.owner, instruction) {
             return match derivation {
                 ProducerTypeDerivation::Pending => Err(IrVerifyError::new("ground producer type derivation is cyclic")),
                 ProducerTypeDerivation::Resolved(ty) => Ok((ty.clone(), None)),
                 ProducerTypeDerivation::ResolvedBinding(ty, binding) => Ok((Some(Arc::clone(ty)), Some(*binding))),
             };
         }
-        self.declared_types.insert(key, ProducerTypeDerivation::Pending);
+        self.declared_types.insert(decoder.owner, instruction, ProducerTypeDerivation::Pending);
         let (ty, binding) = if let Some(id) = self.index.checked_contract_type_id(self.store, instruction) {
             (Some(self.contract_type(id)?), None)
         } else if self.store.tags.get(instruction) == Some(&FullTag::ExprParam) {
@@ -3462,7 +3504,7 @@ impl<'a> ProducerProof<'a> {
             let witness = ty.as_ref().map(|_| DeclaredParamBinding { slot, binding });
             (ty, witness)
         } else { (self.derive_unannotated_type(decoder, instruction)?, None) };
-        self.declared_types.insert(key, match (&ty, binding) {
+        self.declared_types.insert(decoder.owner, instruction, match (&ty, binding) {
             (Some(ty), Some(binding)) => ProducerTypeDerivation::ResolvedBinding(Arc::clone(ty), binding),
             _ => ProducerTypeDerivation::Resolved(ty.clone()),
         });
@@ -5638,7 +5680,7 @@ impl<'a> ProducerProof<'a> {
         }
         let actual = if self.store.tags[instruction] == FullTag::ExprField {
             if let Some(declared) = declared
-                && declared.as_ref() != expected.as_ref()
+                && !same_type(&declared, &expected)
             {
                 self.expression(owner, instruction, declared, returned);
             }
@@ -5672,12 +5714,12 @@ impl<'a> ProducerProof<'a> {
             return Ok(());
         }
         let contextual_list_source = if matches!(expected.as_ref(), Type::List(_))
-            && actual.as_ref().is_none_or(|actual| !actual.matches_expected(&expected))
+            && actual.as_ref().is_none_or(|actual| !Arc::ptr_eq(actual, &expected) && !actual.matches_expected(&expected))
         { self.fresh_contextual_list_source(&decoder, instruction)? } else { None };
         if let Some(actual) = &actual {
             let optional_dynamic_payload = actual.as_ref() == &Type::Any
                 && matches!(expected.as_ref(), Type::Optional(payload) if payload.as_ref() == &Type::Any);
-            let fits = optional_dynamic_payload || if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
+            let fits = optional_dynamic_payload || Arc::ptr_eq(actual, &expected) || if returned { crate::sema::types::tail_type_matches_expected(&expected, actual) } else { actual.matches_expected(&expected) };
             let constructor_payload_contract = owned_declared_fact && matches!(
                 (&view, actual.as_ref(), expected.as_ref()),
                 (schema::ExprView::Ok(_), Type::Result(actual, _), Type::Result(expected, _)) if actual.matches_expected(expected)
@@ -5789,7 +5831,7 @@ impl<'a> ProducerProof<'a> {
             schema::ExprView::Param(slot) => {
                 let binding = match declared_binding { Some(binding) => binding.binding, None => self.binding(owner, instruction, slot)? };
                 if let Some((source, contract)) = self.contextual_sources.get(&(owner, binding)).cloned() {
-                    if contract.as_ref() != expected.as_ref() { return Err(IrVerifyError::new("contextual aggregate read disagrees with its consumer contract")); }
+                    if !same_type(&contract, &expected) { return Err(IrVerifyError::new("contextual aggregate read disagrees with its consumer contract")); }
                     self.expression(owner, source, contract, false);
                     Ok(())
                 } else {
@@ -5798,7 +5840,7 @@ impl<'a> ProducerProof<'a> {
                         && matches!(expected.as_ref(), Type::Record(_))
                         && actual.as_deref() == Some(expected.as_ref())
                         && let Some(declared) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)?
-                        && declared.as_ref() != expected.as_ref()
+                        && !same_type(&declared, &expected)
                         && let Some(checked_slot_type) = decoder.checked_slot_type(slot)?
                         && self.contract_type(checked_slot_type)?.as_ref() == declared.as_ref()
                     {
@@ -5807,7 +5849,7 @@ impl<'a> ProducerProof<'a> {
                     if matches!(expected.as_ref(), Type::Record(_))
                         && self.index.owners[&owner].writers.get(&binding).is_some_and(|writers| writers.len() > 1)
                         && let Some(stored) = self.slot_context_type_for_binding(&decoder, instruction, slot, binding)?
-                        && stored.as_ref() != expected.as_ref()
+                        && !same_type(&stored, &expected)
                     {
                         if !decoder.checked_declared_type_matches_narrowed_fact_with(instruction, (slot, Vec::new()), &stored, &expected, &mut |amount| self.budget.charge(amount))? {
                             return Err(IrVerifyError::new("ground producer read has no authenticated narrowed storage view"));
@@ -5852,7 +5894,7 @@ impl<'a> ProducerProof<'a> {
                             for argument in arguments {
                                 let (ProducerArgument::Single(argument) | ProducerArgument::Splice(argument)) = argument else { continue };
                                 self.budget.charge(1)?;
-                                if !self.expressions.contains_key(&(owner, argument)) {
+                                if !self.expressions.contains(owner, argument) {
                                     return Err(IrVerifyError::new("ground direct scheme argument has no instantiated producer obligation"));
                                 }
                             }
