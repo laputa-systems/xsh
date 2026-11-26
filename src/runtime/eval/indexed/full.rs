@@ -19867,7 +19867,7 @@ impl FullVerifier {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
         let tables = VerificationTables::new(store);
-        let mut producer_index = verify_schemes::GroundProducerIndex::with_types(store, &tables.types)?;
+        let mut producer_index = verify_schemes::GroundProducerIndex::new_with_types(store, &tables.types)?;
         Self::verify_resource_transfer_sites(store)?;
         Self::verify_checked_call_target_coverage(store)?;
         let mut wire_types = rustc_hash::FxHashSet::default();

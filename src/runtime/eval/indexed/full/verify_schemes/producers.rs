@@ -1871,10 +1871,10 @@ impl GroundProducerIndex {
     }
     #[cfg(test)]
     pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
-        Self::with_types(store, &super::super::super::semantic::MaterializedTypes::new(&store.semantic))
+        Self::new_with_types(store, &super::super::super::semantic::MaterializedTypes::new(&store.semantic))
     }
 
-    pub(in crate::runtime::eval::indexed::full) fn with_types(store: &FullStore, types: &super::super::super::semantic::MaterializedTypes<'_>) -> Result<Self, IrVerifyError> {
+    pub(in crate::runtime::eval::indexed::full) fn new_with_types(store: &FullStore, types: &super::super::super::semantic::MaterializedTypes<'_>) -> Result<Self, IrVerifyError> {
         let mut checked_producers = Vec::new();
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
@@ -2709,7 +2709,7 @@ pub(super) struct ProducerProof<'a> {
     pending: Vec<Obligation>,
     functions: BTreeSet<usize>,
     contract_owners: rustc_hash::FxHashSet<u32>,
-    expressions: InstructionTable<Vec<(Arc<Type>, bool)>>,
+    expressions: InstructionTable<smallvec::SmallVec<[(Arc<Type>, bool); 1]>>,
     conditions: BTreeSet<(u32, usize, ConditionRole)>,
     operand_expansions: InstructionTable<()>,
     pipeline_outputs: BTreeMap<(u32, usize, usize), ProducerTypeDerivation>,
@@ -3023,7 +3023,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         proof.budget.charge(1)?;
         if scheme_methods.remove(&(owner, instruction)) { continue; }
         let contexts = proof.expressions.get(owner, instruction);
-        proof.budget.charge(contexts.map_or(0, Vec::len))?;
+        proof.budget.charge(contexts.map_or(0, |contexts| contexts.len()))?;
         if contexts.is_some_and(|contexts| contexts.iter().any(|(expected, _)| !matches!(expected.unvalidated(), Type::Any))) {
             continue;
         }
@@ -3055,7 +3055,7 @@ pub(super) fn verify(mut proof: ProducerProof<'_>, requests: SchemeProducerReque
         for (owner, instruction) in seeded_method_roots {
             proof.budget.charge(1)?;
             let contexts = proof.expressions.get(owner, instruction);
-            proof.budget.charge(contexts.map_or(0, Vec::len))?;
+            proof.budget.charge(contexts.map_or(0, |contexts| contexts.len()))?;
             if contexts.is_some_and(|contexts| contexts.iter().any(|(expected, _)| !matches!(expected.unvalidated(), Type::Any))) {
                 continue;
             }
