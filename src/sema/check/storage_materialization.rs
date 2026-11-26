@@ -58,9 +58,9 @@ impl Checker {
     }
 
     fn storage_keeps_unchanged(actual: &Type, context: StorageContext<'_>) -> bool {
-        use crate::sema::constraints::resolves_unchanged;
-        resolves_unchanged(actual) && match context {
-            StorageContext::Expected(expected) => resolves_unchanged(expected) && !actual.contains_scheme_callable(),
+        use crate::sema::constraints;
+        constraints::resolves_unchanged(actual) && match context {
+            StorageContext::Expected(expected) => constraints::resolves_unchanged(expected) && !actual.contains_scheme_callable(),
             StorageContext::Mutable => !actual.contains_scheme_callable(),
             StorageContext::Opaque => true,
         }
