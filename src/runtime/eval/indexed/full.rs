@@ -4407,7 +4407,7 @@ impl FullBuilder {
                 for field in fields {
                     full_fields.push(FullPatternFieldType {
                         name: field.name,
-                        type_id: self.intern_checked_type(&executable_type(&field.ty))?,
+                        type_id: self.intern_executable_type(&field.ty)?,
                     });
                 }
                 let schema = FullPatternVariantSchema {
@@ -4908,7 +4908,7 @@ impl FullBuilder {
                     None => match body.param_kinds[index] {
                         LoweredParamKind::Typed(kind) => {
                             Some(match &body.param_checks[index] {
-                                Some(check) => self.intern_checked_type(&executable_type(&check.ty))?,
+                                Some(check) => self.intern_executable_type(&check.ty)?,
                                 None => self.intern_lowered_type(kind)?,
                             })
                         }
@@ -4980,7 +4980,7 @@ impl FullBuilder {
                     .transpose()?
                     .unwrap_or(IR_NONE);
                 let type_id = match &capture.checked_type {
-                    Some(ty) => self.intern_checked_type(&executable_type(ty))?,
+                    Some(ty) => self.intern_executable_type(ty)?,
                     None => self.intern_lowered_type(capture.kind)?,
                 };
                 let use_location = capture.use_span
@@ -5002,7 +5002,7 @@ impl FullBuilder {
                 body.checked_return_type
                     .as_ref()
                     .map(|ty| {
-                        self.intern_checked_type(&executable_type(ty))
+                        self.intern_executable_type(ty)
                     })
                     .transpose()?
                     .map_or(IR_NONE, TypeId::raw)
@@ -5041,7 +5041,7 @@ impl FullBuilder {
                 FullCallableContract::Scheme(scheme)
             } else {
                 let return_type = if let Some(check) = &body.return_check {
-                    self.intern_checked_type(&executable_type(&check.ty))?
+                    self.intern_executable_type(&check.ty)?
                 } else if body
                     .checked_return_type
                     .as_ref()
@@ -5092,7 +5092,7 @@ impl FullBuilder {
             for ty in &body.slot_type_facts {
                 let raw = match ty {
                     None => IR_NONE,
-                    Some(ty) => self.intern_checked_type(&executable_type(ty))?
+                    Some(ty) => self.intern_executable_type(ty)?
                         .raw(),
                 };
                 self.store.slot_type_facts.push(raw);
@@ -5533,7 +5533,7 @@ impl FullBuilder {
                     .and_then(Option::as_ref)
                     .or(slot.checked_type.as_ref())
                     .map(|ty| {
-                        self.intern_checked_type(&executable_type(ty))
+                        self.intern_executable_type(ty)
                     })
                     .transpose()?
                     .map_or_else(|| self.intern_lowered_type(slot.kind), Ok)?;
@@ -5582,7 +5582,7 @@ impl FullBuilder {
                 else {
                     continue;
                 };
-                let type_id = self.intern_checked_type(&executable_type(ty))?;
+                let type_id = self.intern_executable_type(ty)?;
                 self.store.driver_slots.push(FullDriverSlot {
                     name: IR_NONE,
                     type_id,
@@ -5606,7 +5606,7 @@ impl FullBuilder {
                 key, alias, path, namespace, exports, checked_type, span, ..
             }) => {
                 registered_module_type = match checked_type {
-                    Some(ty @ Type::Module(_)) => self.intern_checked_type(&executable_type(ty))?
+                    Some(ty @ Type::Module(_)) => self.intern_executable_type(ty)?
                         .raw(),
                     Some(_) => {
                         return Err(IrBuildError::format(
@@ -5980,7 +5980,7 @@ impl FullBuilder {
     fn encode_validation(&mut self, check: &LoweredTypeCheck) -> Result<u32, IrBuildError> {
         let id = u32::try_from(self.store.validations.len())
             .map_err(|_| IrBuildError::format("validation_overflow", None, 0, 0))?;
-        let type_id = self.intern_checked_type(&executable_type(&check.ty))?;
+        let type_id = self.intern_executable_type(&check.ty)?;
         let name = self.intern_string(&check.name)?.raw();
         self.store
             .validations
@@ -6419,6 +6419,29 @@ fn executable_type(ty: &Type) -> Type {
         })),
         ty => ty.clone(),
     }
+}
+
+fn executable_type_rewrites(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown | Type::Invalid => true,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => executable_type_rewrites(inner),
+        Type::Map(key, inner) | Type::Result(key, inner) => executable_type_rewrites(key) || executable_type_rewrites(inner),
+        Type::Union(members) => members.iter().any(executable_type_rewrites),
+        Type::Validated(validated) => executable_type_rewrites(validated.base()),
+        Type::Callable(callable) => executable_callable_type_rewrites(&callable.sig),
+        Type::Record(fields) => fields.values().any(executable_type_rewrites),
+        Type::Module(module) => module.iter().any(|(_, export)| match export {
+            ModuleExportType::Value { ty, .. } => executable_type_rewrites(ty),
+            ModuleExportType::Callable { sig, .. } => executable_callable_type_rewrites(sig),
+            ModuleExportType::GenericCallable { .. } => false,
+        }),
+        _ => false,
+    }
+}
+
+fn executable_callable_type_rewrites(signature: &CallableType) -> bool {
+    signature.params.iter().any(|param| executable_type_rewrites(&param.ty))
+        || executable_type_rewrites(&signature.return_ty)
 }
 
 fn executable_callable_type(signature: &CallableType) -> CallableType {

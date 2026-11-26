@@ -163,6 +163,13 @@ impl FullBuilder {
 
     fn scheme_callable_build_error() -> IrBuildError { IrBuildError::format("scheme_callable_relationship", None, 0, 0) }
 
+    pub(super) fn intern_executable_type(&mut self, source: &Type) -> Result<TypeId, IrBuildError> {
+        if super::executable_type_rewrites(source) {
+            return self.intern_checked_type(&super::executable_type(source));
+        }
+        self.intern_checked_type(source)
+    }
+
     pub(super) fn intern_checked_type(&mut self, source: &Type) -> Result<TypeId, IrBuildError> {
         if !source.contains_scheme_callable() { return self.semantic.intern_type(&mut self.store.semantic, source); }
         let destination = crate::sema::scheme_callable::map_type_ids(source, &mut |id| {
