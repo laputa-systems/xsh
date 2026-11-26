@@ -1537,6 +1537,32 @@ pub(super) struct SemanticPoolBuilder {
     types: FxHashMap<TypeKey, TypeId>,
     signatures: FxHashMap<SignatureKey, SignatureId>,
     shapes: FxHashMap<Box<[Name]>, ShapeId>,
+    shared_types: FxHashMap<usize, (SharedTypeNode, TypeId)>,
+}
+
+enum SharedTypeNode {
+    Record(std::sync::Arc<BTreeMap<Name, Type>>),
+    Module(std::sync::Arc<crate::sema::types::ModuleType>),
+    Callable(std::sync::Arc<crate::sema::types::TypedCallable>),
+}
+
+impl SharedTypeNode {
+    fn of(ty: &Type) -> Option<Self> {
+        match ty {
+            Type::Record(fields) => Some(Self::Record(std::sync::Arc::clone(fields))),
+            Type::Module(module) => Some(Self::Module(std::sync::Arc::clone(module))),
+            Type::Callable(callable) => Some(Self::Callable(std::sync::Arc::clone(callable))),
+            _ => None,
+        }
+    }
+
+    fn address(&self) -> usize {
+        match self {
+            Self::Record(fields) => std::sync::Arc::as_ptr(fields) as usize,
+            Self::Module(module) => std::sync::Arc::as_ptr(module) as usize,
+            Self::Callable(callable) => std::sync::Arc::as_ptr(callable) as usize,
+        }
+    }
 }
 
 impl SemanticPoolBuilder {
@@ -1562,12 +1588,30 @@ impl SemanticPoolBuilder {
         pools.shapes.truncate(checkpoint.shapes);
         pools.shape_fields.truncate(checkpoint.shape_fields);
         self.types.retain(|_, id| id.index() < checkpoint.types);
+        self.shared_types.retain(|_, (_, id)| id.index() < checkpoint.types);
         self.signatures
             .retain(|_, id| id.index() < checkpoint.signatures);
         self.shapes.retain(|_, id| id.index() < checkpoint.shapes);
     }
 
     pub(super) fn intern_type(
+        &mut self,
+        pools: &mut SemanticPools,
+        ty: &Type,
+    ) -> Result<TypeId, IrBuildError> {
+        let Some(node) = SharedTypeNode::of(ty) else {
+            return self.intern_type_structure(pools, ty);
+        };
+        let address = node.address();
+        if let Some((_, id)) = self.shared_types.get(&address) {
+            return Ok(*id);
+        }
+        let id = self.intern_type_structure(pools, ty)?;
+        self.shared_types.insert(address, (node, id));
+        Ok(id)
+    }
+
+    fn intern_type_structure(
         &mut self,
         pools: &mut SemanticPools,
         ty: &Type,
