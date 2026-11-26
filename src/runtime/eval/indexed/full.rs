@@ -17500,8 +17500,8 @@ impl IndexedReturnAnalysis {
     fn build(decoder: &FullDecoder<'_>) -> Result<Self, IrVerifyError> {
         let range = decoder.instruction_range.clone();
         let node_count = range.len();
-        let mut children = vec![Vec::new(); node_count];
-        let mut child_reachability = vec![Vec::new(); node_count];
+        let mut parents = vec![None; node_count];
+        let mut child_offsets = vec![0usize; node_count + 1];
         let mut roots = Vec::new();
         let mut callback_loop_boundary_roots = rustc_hash::FxHashSet::default();
         #[cfg(test)]
@@ -17517,17 +17517,13 @@ impl IndexedReturnAnalysis {
             }
             let parent = decoder.instruction_parent_of(instruction)?;
             if let Some(parent) = parent {
-                let Some(parent_local) = parent.checked_sub(range.start) else {
+                let Some(parent_local) = parent.checked_sub(range.start).filter(|local| *local < node_count) else {
                     return Err(IrVerifyError::new(
                         "return-analysis parent is outside its instruction owner",
                     ));
                 };
-                let Some(siblings) = children.get_mut(parent_local) else {
-                    return Err(IrVerifyError::new(
-                        "return-analysis parent is outside its instruction owner",
-                    ));
-                };
-                siblings.push(instruction);
+                parents[instruction - range.start] = Some(parent_local);
+                child_offsets[parent_local + 1] += 1;
             } else {
                 roots.push(instruction);
             }
@@ -17540,14 +17536,27 @@ impl IndexedReturnAnalysis {
             }
         }
 
-        for (local, siblings) in children.iter().enumerate() {
+        for local in 0..node_count {
+            child_offsets[local + 1] += child_offsets[local];
+        }
+        let mut child_instructions = vec![0usize; child_offsets[node_count]];
+        let mut filled = child_offsets.clone();
+        for (local, parent) in parents.iter().enumerate() {
+            if let Some(parent) = *parent {
+                child_instructions[filled[parent]] = range.start + local;
+                filled[parent] += 1;
+            }
+        }
+        let children = |local: usize| &child_instructions[child_offsets[local]..child_offsets[local + 1]];
+        let mut child_reachability = Vec::with_capacity(child_instructions.len());
+        for local in 0..node_count {
             let instruction = range.start + local;
-            let (reachable, visits) = indexed_children_reachable_from_parent(
+            let visits = indexed_children_reachable_from_parent(
                 decoder,
                 instruction,
-                siblings,
+                children(local),
+                &mut child_reachability,
             )?;
-            child_reachability[local] = reachable;
             #[cfg(test)]
             {
                 reachability_visits += visits;
@@ -17585,8 +17594,8 @@ impl IndexedReturnAnalysis {
                     if !matches!(tag, FullTag::ExprCapture | FullTag::ExprRetry)
                         && !has_uncaught_try
                     {
-                        for (child_index, child) in children[local].iter().enumerate() {
-                            if child_reachability[local][child_index]
+                        for (child_index, child) in children(local).iter().enumerate() {
+                            if child_reachability[child_offsets[local] + child_index]
                                 && subtree_has_try[*child - range.start]
                             {
                                 has_uncaught_try = true;
@@ -17608,7 +17617,7 @@ impl IndexedReturnAnalysis {
                 }
                 *state = 1;
                 stack.push((local, true));
-                for child in children[local].iter().rev() {
+                for child in children(local).iter().rev() {
                     #[cfg(test)]
                     {
                         edge_visits += 1;
@@ -17673,14 +17682,14 @@ impl IndexedReturnAnalysis {
                 }
             }
 
-            for (child_index, child) in children[local].iter().enumerate().rev() {
+            for (child_index, child) in children(local).iter().enumerate().rev() {
                 #[cfg(test)]
                 {
                     edge_visits += 1;
                 }
                 let child = *child;
                 let child_reachable = reachable
-                    && child_reachability[local][child_index];
+                    && child_reachability[child_offsets[local] + child_index];
                 let next_loop = if callback_loop_boundary_roots.contains(&child) {
                     None
                 } else if matches!(
@@ -19523,7 +19532,8 @@ fn indexed_children_reachable_from_parent(
     decoder: &FullDecoder<'_>,
     parent: usize,
     children: &[usize],
-) -> Result<(Vec<bool>, usize), IrVerifyError> {
+    reachability: &mut Vec<bool>,
+) -> Result<usize, IrVerifyError> {
     let tag = *decoder
         .store
         .tags
@@ -19625,16 +19635,12 @@ fn indexed_children_reachable_from_parent(
             _ => return Err(IrVerifyError::new("return-analysis else payload is invalid")),
         }
     } else {
-        return Ok((vec![true; children.len()], 0));
+        reachability.extend(std::iter::repeat_n(true, children.len()));
+        return Ok(0);
     }
     visits += children.len();
-    Ok((
-        children
-            .iter()
-            .map(|child| reachable.contains(child))
-            .collect(),
-        visits,
-    ))
+    reachability.extend(children.iter().map(|child| reachable.contains(child)));
+    Ok(visits)
 }
 
 impl FullVerifier {
