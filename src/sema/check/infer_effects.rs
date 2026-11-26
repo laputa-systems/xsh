@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
 /// overlap. Bundled source spans remain usable as the tooling projection.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct EffectDeclarationId {
     pub namespace: Option<Name>,
     pub body: Span,

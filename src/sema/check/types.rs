@@ -515,7 +515,8 @@ impl Checker {
             }
             return;
         }
-        if actual.any_flows_to_concrete(expected) && expected.contains_typed_callable() {
+        let flows_to_concrete = actual.any_flows_to_concrete(expected);
+        if flows_to_concrete && expected.contains_typed_callable() {
             // No validation can establish a callable signature, so the
             // report offers no `.require` rewrite.
             self.report_dynamic_boundary(
@@ -525,7 +526,7 @@ impl Checker {
             );
             return;
         }
-        if actual.any_flows_to_concrete(expected) {
+        if flows_to_concrete {
             let target = (*actual == Type::Any).then_some(expected);
             self.report_dynamic_boundary(
                 format!("unchecked {actual} cannot establish {expected}; validate with `.require(Type)` or use a checked type pattern"),

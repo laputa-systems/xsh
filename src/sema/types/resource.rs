@@ -1,32 +1,34 @@
 use super::Type;
-use rustc_hash::FxHashSet;
 
 impl Type {
     /// Whether a value of this type can contain a host resource handle.
     /// Unknown or erased shapes stay conservative because their runtime
     /// contents cannot be inspected from the static type.
     pub fn may_hold_resource(&self) -> bool {
-        let mut pending = vec![self];
-        let mut visited = FxHashSet::default();
-
-        while let Some(ty) = pending.pop() {
-            let identity = std::ptr::from_ref(ty);
-            if !visited.insert(identity) {
-                continue;
-            }
-
-            match ty {
+        let mut pending = ResourceSearch::default();
+        let mut current = self;
+        loop {
+            match current {
                 Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::Stream(_) => {
                     return true;
                 }
-                Self::List(item) | Self::Set(item) | Self::Optional(item) => pending.push(item),
+                Self::List(item) | Self::Set(item) | Self::Optional(item) => {
+                    current = item;
+                    continue;
+                }
+                Self::Validated(validated) => {
+                    current = validated.base();
+                    continue;
+                }
                 Self::Map(key, value) | Self::Result(key, value) => {
-                    pending.push(key);
                     pending.push(value);
+                    current = key;
+                    continue;
                 }
                 Self::Record(_) | Self::Tag(_) => return true,
-                Self::Union(members) => pending.extend(members),
-                Self::Validated(validated) => pending.push(validated.base()),
+                Self::Union(members) => {
+                    for member in members { pending.push(member); }
+                }
                 Self::Any
                 | Self::Unknown
                 | Self::Invalid
@@ -59,9 +61,36 @@ impl Type {
                 | Self::Command
                 | Self::Unit => {}
             }
+            match pending.pop() {
+                Some(next) => current = next,
+                None => return false,
+            }
         }
+    }
+}
 
-        false
+#[derive(Default)]
+struct ResourceSearch<'a> {
+    inline: [Option<&'a Type>; 8],
+    count: usize,
+    overflow: Vec<&'a Type>,
+}
+
+impl<'a> ResourceSearch<'a> {
+    fn push(&mut self, ty: &'a Type) {
+        if self.count < self.inline.len() {
+            self.inline[self.count] = Some(ty);
+            self.count += 1;
+        } else {
+            self.overflow.push(ty);
+        }
+    }
+
+    fn pop(&mut self) -> Option<&'a Type> {
+        if let Some(ty) = self.overflow.pop() { return Some(ty); }
+        if self.count == 0 { return None; }
+        self.count -= 1;
+        self.inline[self.count].take()
     }
 }
 
@@ -104,5 +133,26 @@ mod tests {
         for ty in [Type::Int, Type::Str] {
             assert!(!ty.may_hold_resource());
         }
+    }
+
+    #[test]
+    fn may_hold_resource_searches_every_pending_shape_past_the_inline_stack() {
+        let mut members = vec![Type::Int; 20];
+        assert!(!Type::Union(members.clone()).may_hold_resource());
+        for index in [0, 7, 8, 19] {
+            members[index] = Type::FsLock;
+            assert!(Type::Union(members.clone()).may_hold_resource());
+            members[index] = Type::Int;
+        }
+        let nested_values = (0..20).fold(Type::Int, |ty, _| {
+            Type::Map(Box::new(Type::Str), Box::new(Type::Set(Box::new(ty))))
+        });
+        assert!(!nested_values.may_hold_resource());
+        let nested_keys = (0..20).fold(Type::Int, |ty, _| Type::Map(Box::new(ty), Box::new(Type::Bool)));
+        assert!(!nested_keys.may_hold_resource());
+        let resource_at_depth = (0..20).fold(Type::SshSession, |ty, _| Type::Map(Box::new(Type::Bool), Box::new(ty)));
+        assert!(resource_at_depth.may_hold_resource());
+        let resource_in_first_key = (0..20).fold(Type::NetJob, |ty, _| Type::Map(Box::new(ty), Box::new(Type::Bool)));
+        assert!(resource_in_first_key.may_hold_resource());
     }
 }

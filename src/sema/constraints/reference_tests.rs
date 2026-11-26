@@ -726,3 +726,35 @@ fn production_trials_restore_generalization_and_row_continuations() {
         }
     });
 }
+
+#[test]
+fn unchanged_resolution_claims_only_equal_successful_resolutions() {
+    let owner = SymbolOwner::new();
+    let mut constraints = TypeConstraints::default();
+    let span = Span::new(SourceId::new(0), 1, 2);
+    let variable = constraints.fresh(span);
+    let record = Type::Record(Arc::new(BTreeMap::from([(owner.intern("field"), Type::List(Box::new(Type::Str)))])));
+    let shallow = (0..super::MAX_TYPE_DEPTH / 4).fold(Type::Int, |ty, _| Type::Optional(Box::new(ty)));
+    let bounded = (0..=super::MAX_TYPE_DEPTH / 4).fold(Type::Int, |ty, _| Type::Optional(Box::new(ty)));
+    let too_deep = (0..=super::MAX_TYPE_DEPTH).fold(Type::Int, |ty, _| Type::List(Box::new(ty)));
+    let cases = [
+        (Type::Int, true),
+        (Type::Result(Box::new(record.clone()), Box::new(Type::Error)), true),
+        (Type::Union(vec![Type::Str, Type::Path, record.clone()]), true),
+        (Type::Map(Box::new(Type::Str), Box::new(record)), true),
+        (shallow, true),
+        (bounded, false),
+        (too_deep, false),
+        (variable.clone(), false),
+        (Type::List(Box::new(variable.clone())), false),
+        (Type::Record(Arc::new(BTreeMap::from([(owner.intern("field"), variable)]))), false),
+    ];
+    for (ty, unchanged) in cases {
+        assert_eq!(super::resolves_unchanged(&ty), unchanged, "{ty:?}");
+        if unchanged {
+            assert_eq!(constraints.resolve(&ty), Ok(ty));
+        }
+    }
+    let too_deep = (0..=super::MAX_TYPE_DEPTH).fold(Type::Int, |ty, _| Type::List(Box::new(ty)));
+    assert_eq!(constraints.resolve(&too_deep), Err(ConstraintResolutionError::TypeDepth));
+}

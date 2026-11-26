@@ -212,6 +212,7 @@ struct PreparedCheckedFunction {
 
 impl Checker {
     fn checked_nullary_tag_producer_span(&self, program: &ArenaProgram, expression: ExprId, ty: &Type) -> Option<Span> {
+        let Type::Tag(produced) = ty else { return None };
         let node = program.arena.expr(expression);
         let family = match node.kind {
             ArenaExprKind::Ident(name) if matches!(self.lookup_value_binding_for_expr(program, expression), super::ValueBindingLookup::NoSite) => {
@@ -235,7 +236,7 @@ impl Checker {
             },
             _ => return None,
         };
-        (*ty == Type::Tag(family)).then_some(node.span)
+        (*produced == family).then_some(node.span)
     }
 
     fn report_unanchored_call_types(
@@ -414,7 +415,7 @@ impl Checker {
             body_types.insert(scope, ty);
         }
         let empty_lists = body_types.iter().filter(|(expression, ty)| {
-            **ty == Type::List(Box::new(Type::Unknown)) && super::expr::list_literal_is_empty(program, **expression) == Some(true)
+            matches!(ty, Type::List(item) if **item == Type::Unknown) && super::expr::list_literal_is_empty(program, **expression) == Some(true)
         }).map(|(&expression, _)| expression).collect::<Vec<_>>();
         if !empty_lists.is_empty() {
             let branch_joins = program.arena.source_rows().expr_ids(body_span.source_id).filter_map(|expression| {
