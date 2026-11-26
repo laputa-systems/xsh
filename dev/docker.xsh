@@ -5,7 +5,7 @@ use stage_contract as contract
 use targets
 
 ## Host-side tool paths mounted read-only into the pinned Linux test container.
-export type HostLinkTools = {mold: Path, kache: Path}
+export type HostLinkTools = {mold: Path, kache: Path, kache_engine: Path}
 
 ## Docker could not identify the immutable image for gate execution.
 export error ImageError = InvalidIdentity(detail: Str) | Unavailable(raw_status: Int) | Cancelled(raw_status: Int)
@@ -27,13 +27,14 @@ proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTo
   } else {
     fp"{cargo_home}/bin/kache"
   }
+  let kache_engine = fp"{kache.parent()}/kache-engine"
   let linker_adapter = fp"{ctx.root}/dev/musl-linker.sh"
-  return null unless mold.exists() and kache.exists()
+  return null unless mold.exists() and kache.exists() and kache_engine.exists()
   guard linker_adapter.exists() else {
     return Err(stages.StageError.MissingTool(tool: "dev/musl-linker.sh"))
   }
 
-  {mold: mold, kache: kache}
+  {mold: mold, kache: kache, kache_engine: kache_engine}
 }
 
 ## Resolve the pinned image and reject a Dockerfile changed since it was built.
@@ -201,6 +202,8 @@ export pure internal_argv(
       f"{host_link_tools.mold}:/usr/local/bin/mold:ro",
       "-v",
       f"{host_link_tools.kache}:/usr/local/bin/kache:ro",
+      "-v",
+      f"{host_link_tools.kache_engine}:/usr/local/bin/kache-engine:ro",
     ]
   }
   guard ctx.target.triple == "x86_64-unknown-linux-musl" or ctx.target.triple == "aarch64-unknown-linux-musl" else {

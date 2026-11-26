@@ -824,11 +824,13 @@ test test_gate_docker_mounts_mold_and_kache_with_the_pinned_abi_flags {
     host_link_tools: {
       mold: p"/usr/local/bin/mold",
       kache: p"/host/cargo/bin/kache",
+      kache_engine: p"/host/cargo/bin/kache-engine",
     },
   )?
   assert "/repo/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro" in argv
   assert "/usr/local/bin/mold:/usr/local/bin/mold:ro" in argv
   assert "/host/cargo/bin/kache:/usr/local/bin/kache:ro" in argv
+  assert "/host/cargo/bin/kache-engine:/usr/local/bin/kache-engine:ro" in argv
   assert "RUSTC_WRAPPER=/usr/local/bin/kache" in argv
   assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker" in argv
   assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol" in argv
