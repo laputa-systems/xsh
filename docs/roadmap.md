@@ -44,7 +44,7 @@ This is the single plan for this repository: all current and future work, and th
 - The 152-byte `FrameWork` copy per evaluator step is not a lead: ten candidate layouts and in-place pops moved instructions under 0.2% and cycles within noise (2026-11-24).
 - MG1 is parked at `.work/wt/mg2` on `lane/mg2`: it has migrated 12 of the 45 blanket rule exclusions (33 remain), and the rest are corpus-wide rewrites that this campaign lists as an owner contract change. M2 is met and the host is quiet, but finishing those rewrites needs the owner's decision; run `cargo dev test linux` before pushing if authorized.
 - Host: niceforge containers and the stats and venus VMs were stopped, swap was cycled, and stale `/tmp` and Docker data were removed with the owner's approval (2026-11-24). Workers run on Codex only: Command Code has no credits and OpenCode Go is at its monthly limit.
-- The broad semantic-soundness campaign is paused since 2026-11-23; focused proofs continue when an optimization requires them.
+- The broad semantic-soundness campaign is paused since 2026-11-23; focused proofs continue when an optimization requires them. IFC-1 and IFC-2 belong to that paused campaign and are parked until the owner lifts the pause; they are not on the performance campaign's close path.
 - `xsh-lean.md` stays unchanged because the formal inventory checker and its tests read it.
 
 ## Charter
