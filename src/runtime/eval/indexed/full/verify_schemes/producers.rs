@@ -1819,11 +1819,15 @@ impl GroundProducerIndex {
         Ok(self.module_exports.contains_key(&owner))
     }
     pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
+        Self::with_types(store, &super::super::super::semantic::MaterializedTypes::new(&store.semantic))
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn with_types(store: &FullStore, types: &super::super::super::semantic::MaterializedTypes<'_>) -> Result<Self, IrVerifyError> {
         let mut checked_producers = Vec::new();
         for (index, fact) in store.checked_expr_types.iter().enumerate() {
             if !fact.is_contract() { continue; }
             let Some(&tag) = store.tags.get(fact.instruction as usize) else { continue };
-            let ty = store.semantic.to_type(fact.type_id)?;
+            let ty = types.to_type(fact.type_id)?;
             if ty.contains_scheme_callable() || crate::runtime::eval::stream_return_item(&ty).is_some() { checked_producers.push(index); continue; }
             if !matches!(tag, FullTag::ExprOk | FullTag::ExprErr | FullTag::ExprCheckedValue) { continue; }
             if (tag == FullTag::ExprCheckedValue && ty.contains_typed_callable())
@@ -2049,7 +2053,7 @@ impl GroundProducerIndex {
                 record_condition_inputs(decoder, instruction, &mut self.conditions, |amount| work.borrow_mut().charge(amount))?;
             }
             if decoder.store.tags[instruction] == FullTag::ExprParam {
-                let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::Param(slot) = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 slot_reads.push((instruction, slot));
             }
             owner.parents[instruction - range.start] = decoder.instruction_parent_of(instruction)?;
@@ -2062,16 +2066,17 @@ impl GroundProducerIndex {
             if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt
                 && !matches!(decoder.store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtDefaultParameter | FullTag::StmtScanBytes)
             {
-                let declared = match decoder.statement_view(instruction)? {
-                    schema::StmtView::ScanLines { line_slot, .. } => vec![line_slot],
+                let statement = decoder.statement_view_ref(instruction)?;
+                let declared = match &*statement {
+                    schema::StmtView::ScanLines { line_slot, .. } => vec![*line_slot],
                     _ => decoder.statement_written_slots(instruction)?.0,
                 };
                 if !declared.is_empty() { owner.declarations.insert(instruction, declared); }
-                let following = match decoder.statement_view(instruction)? {
-                    schema::StmtView::Let { slot, .. } | schema::StmtView::LetInt { slot, .. } | schema::StmtView::LetBool { slot, .. } => vec![slot],
+                let following = match &*statement {
+                    schema::StmtView::Let { slot, .. } | schema::StmtView::LetInt { slot, .. } | schema::StmtView::LetBool { slot, .. } => vec![*slot],
                     schema::StmtView::LetRecord { target, .. } | schema::StmtView::Guard { target, .. } => {
                         let mut slots = Vec::new();
-                        decoder.comp_target_written_slots(target, &mut slots)?;
+                        decoder.comp_target_written_slots(target.clone(), &mut slots)?;
                         slots
                     }
                     _ => Vec::new(),
@@ -3046,8 +3051,8 @@ fn call_parts(decoder: &FullDecoder<'_>, instruction: usize) -> Result<(usize, V
 }
 
 fn call_values(decoder: &FullDecoder<'_>, instruction: usize) -> Result<Vec<ProducerArgument>, IrVerifyError> {
-    let arguments = match decoder.expression_view(instruction)? {
-        schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } | schema::ExprView::TypedCall { args, .. } | schema::ExprView::DynamicCall { args, .. } => args,
+    let arguments = match &*decoder.expression_view_ref(instruction)? {
+        schema::ExprView::Call { args, .. } | schema::ExprView::DirectPureCall { args, .. } | schema::ExprView::SelfCall { args, .. } | schema::ExprView::TypedCall { args, .. } | schema::ExprView::DynamicCall { args, .. } => args.clone(),
         _ => return Err(IrVerifyError::new("ground producer has no callable argument row")),
     };
     let mut result = Vec::new();
@@ -3437,7 +3442,7 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn scoped_field_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<super::SchemeType>, IrVerifyError> {
-        if !matches!(decoder.expression_view(instruction)?, schema::ExprView::Field { .. }) {
+        if !matches!(*decoder.expression_view_ref(instruction)?, schema::ExprView::Field { .. }) {
             return Err(IrVerifyError::new("scoped field proof has another physical expression"));
         }
         self.scoped_expression_type(decoder, instruction)
@@ -3498,7 +3503,7 @@ impl<'a> ProducerProof<'a> {
         let (ty, binding) = if let Some(id) = self.index.checked_contract_type_id(self.store, instruction) {
             (Some(self.contract_type(id)?), None)
         } else if self.store.tags.get(instruction) == Some(&FullTag::ExprParam) {
-            let schema::ExprView::Param(slot) = decoder.expression_view(instruction)? else { unreachable!("parameter tag has another expression view") };
+            let schema::ExprView::Param(slot) = *decoder.expression_view_ref(instruction)? else { unreachable!("parameter tag has another expression view") };
             let binding = self.binding(decoder.owner, instruction, slot)?;
             let ty = self.slot_context_type_for_binding(decoder, instruction, slot, binding)?;
             let witness = ty.as_ref().map(|_| DeclaredParamBinding { slot, binding });
@@ -3858,9 +3863,9 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn pushes_expected_to_results(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type, block_values: bool) -> Result<bool, IrVerifyError> {
-        Ok(match decoder.expression_view(instruction)? {
-            schema::ExprView::ErrorContext { mut body, .. } => decoder.derive_checked_block_tail_expression(&mut body)?.is_some(),
-            schema::ExprView::ValueBlock { mut body, .. } => block_values && decoder.derive_checked_block_tail_expression(&mut body)?.is_some(),
+        Ok(match &*decoder.expression_view_ref(instruction)? {
+            schema::ExprView::ErrorContext { body, .. } => decoder.derive_checked_block_tail_expression(&mut body.clone())?.is_some(),
+            schema::ExprView::ValueBlock { body, .. } => block_values && decoder.derive_checked_block_tail_expression(&mut body.clone())?.is_some(),
             schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. }
             | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. } => true,
             schema::ExprView::Binary { op: crate::syntax::node::BinaryOp::Add, .. } => matches!(expected, Type::List(_)),
@@ -3871,10 +3876,10 @@ impl<'a> ProducerProof<'a> {
     fn skips_derived_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize, expected: &Type, returned: bool) -> Result<bool, IrVerifyError> {
         if !self.pushes_expected_to_results(decoder, instruction, expected, true)? { return Ok(false); }
         if !returned { return Ok(true); }
-        match decoder.expression_view(instruction)? {
-            schema::ExprView::ValueBlock { mut body, .. } | schema::ExprView::ErrorContext { mut body, .. } => {
-                let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body)? else { return Ok(false) };
-                Ok(matches!(decoder.expression_view(tail)?,
+        match &*decoder.expression_view_ref(instruction)? {
+            schema::ExprView::ValueBlock { body, .. } | schema::ExprView::ErrorContext { body, .. } => {
+                let Some(tail) = decoder.derive_checked_block_tail_expression(&mut body.clone())? else { return Ok(false) };
+                Ok(matches!(*decoder.expression_view_ref(tail)?,
                     schema::ExprView::List(_) | schema::ExprView::ListBuild(_) | schema::ExprView::MapLiteral(_) | schema::ExprView::EmptyMap
                     | schema::ExprView::IfExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::MatchExpr { .. }
                     | schema::ExprView::StrMatchExpr { .. } | schema::ExprView::TagMatchExpr { .. }))
@@ -4013,7 +4018,31 @@ impl<'a> ProducerProof<'a> {
     }
 
     fn derive_unannotated_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
-        let literal = match decoder.expression_view(instruction)? {
+        let view = decoder.expression_view_ref(instruction)?;
+        let intrinsic = match &*view {
+            schema::ExprView::Null => Some(Type::Null),
+            schema::ExprView::Unit => Some(Type::Unit),
+            schema::ExprView::Bool(_) => Some(Type::Bool),
+            schema::ExprView::Int(_) => Some(Type::Int),
+            schema::ExprView::UInt(_) => Some(Type::UInt),
+            schema::ExprView::Float(_) => Some(Type::Float),
+            schema::ExprView::Str(_) => Some(Type::Str),
+            schema::ExprView::Bytes(_) => Some(Type::Bytes),
+            schema::ExprView::Duration(_) => Some(Type::Duration),
+            schema::ExprView::PreparedRegex(_) => Some(Type::Regex),
+            schema::ExprView::Path(_) => Some(Type::Path),
+            schema::ExprView::Glob { .. } => Some(Type::List(Box::new(Type::Path))),
+            schema::ExprView::Range { .. } => Some(Type::Stream(Box::new(Type::Int))),
+            schema::ExprView::ProcCallResult(_) => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
+            schema::ExprView::SpawnRun(_) | schema::ExprView::SpawnCommand { .. } => Some(Type::Result(Box::new(Type::ProcessHandle), Box::new(Type::ProcessError))),
+            schema::ExprView::StrByteLen { .. } => Some(Type::Int),
+            schema::ExprView::StrPredicate { .. } => Some(Type::Bool),
+            schema::ExprView::Tag { type_name, .. } => Some(Type::Tag(*type_name)),
+            schema::ExprView::Binary { op: super::super::BinaryOp::Eq | super::super::BinaryOp::Ne | super::super::BinaryOp::Lt | super::super::BinaryOp::Le | super::super::BinaryOp::Gt | super::super::BinaryOp::Ge | super::super::BinaryOp::And | super::super::BinaryOp::Or | super::super::BinaryOp::In | super::super::BinaryOp::NotIn, .. } => Some(Type::Bool),
+            _ => None,
+        };
+        if let Some(ty) = intrinsic { return Ok(Some(Arc::new(ty))); }
+        let literal = match view.into_owned() {
             schema::ExprView::Null => Some(Type::Null),
             schema::ExprView::Unit => Some(Type::Unit),
             schema::ExprView::Bool(_) => Some(Type::Bool),
@@ -5616,7 +5645,7 @@ impl<'a> ProducerProof<'a> {
         };
         let decoder = self.owner(owner)?;
         if let Some(binding) = declared_binding
-            && !matches!(decoder.expression_view(instruction)?, schema::ExprView::Param(slot) if slot == binding.slot)
+            && !matches!(*decoder.expression_view_ref(instruction)?, schema::ExprView::Param(slot) if slot == binding.slot)
         { return Err(IrVerifyError::new("declared producer binding belongs to another slot")); }
         self.budget.charge(1)?;
         let expected = if expected.as_ref() == &Type::Any && self.store.tags[instruction] == FullTag::ExprCapture {

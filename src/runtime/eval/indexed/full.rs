@@ -7525,6 +7525,31 @@ struct DecodedViews<'a> {
     returning_statements: RefCell<FxHashMap<usize, bool>>,
 }
 
+enum ViewRef<'v, T> {
+    Shared(&'v T),
+    Owned(T),
+}
+
+impl<T: Clone> ViewRef<'_, T> {
+    fn into_owned(self) -> T {
+        match self {
+            Self::Shared(view) => view.clone(),
+            Self::Owned(view) => view,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for ViewRef<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        match self {
+            Self::Shared(view) => view,
+            Self::Owned(view) => view,
+        }
+    }
+}
+
 struct OwnerViews<'a> {
     instruction_range: std::ops::Range<usize>,
     slot_count: u32,
@@ -7644,6 +7669,34 @@ impl<'a> FullDecoder<'a> {
             Some(tables) => tables.semantic_type(id).map(|ty| Type::clone(&ty)),
             None => self.store.semantic.to_type(id),
         }
+    }
+
+    fn expression_view_ref(
+        &self,
+        instruction: usize,
+    ) -> Result<ViewRef<'a, schema::ExprView<'a>>, IrVerifyError> {
+        if let Some(views) = self.decoded_views.owner
+            && let Some(cell) = instruction.checked_sub(views.instruction_range.start).and_then(|offset| views.expressions.get(offset))
+        {
+            if let Some(view) = cell.get() { return Ok(ViewRef::Shared(view)); }
+            let view = self.decode_expression_view(instruction)?;
+            return Ok(ViewRef::Shared(cell.get_or_init(|| view)));
+        }
+        self.expression_view(instruction).map(ViewRef::Owned)
+    }
+
+    fn statement_view_ref(
+        &self,
+        instruction: usize,
+    ) -> Result<ViewRef<'a, schema::StmtView<'a>>, IrVerifyError> {
+        if let Some(views) = self.decoded_views.owner
+            && let Some(cell) = instruction.checked_sub(views.instruction_range.start).and_then(|offset| views.statements.get(offset))
+        {
+            if let Some(view) = cell.get() { return Ok(ViewRef::Shared(view)); }
+            let view = self.decode_statement_view(instruction)?;
+            return Ok(ViewRef::Shared(cell.get_or_init(|| view)));
+        }
+        self.statement_view(instruction).map(ViewRef::Owned)
     }
 
     fn expression_view(
@@ -9503,38 +9556,38 @@ impl<'a> FullDecoder<'a> {
     ) -> Result<(bool, Option<(usize, usize)>, Option<(usize, LocalImmutableLetWriter)>), IrVerifyError> {
         let mut initializer = None;
         let mut scalar_writer = None;
-        match self.statement_view(instruction)? {
-            schema::StmtView::Let { slot, value, .. } => {
+        match &*self.statement_view_ref(instruction)? {
+            &schema::StmtView::Let { slot, value, .. } => {
                 charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 initializer = Some((slot, value.raw() as usize));
             }
-            schema::StmtView::LetInt { slot, .. } => {
+            &schema::StmtView::LetInt { slot, .. } => {
                 charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 scalar_writer = Some((slot, LocalImmutableLetWriter::Int));
             }
-            schema::StmtView::LetBool { slot, .. } => {
+            &schema::StmtView::LetBool { slot, .. } => {
                 charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); }
                 scalar_writer = Some((slot, LocalImmutableLetWriter::Bool));
             }
-            schema::StmtView::Assign { slot, .. }
-            | schema::StmtView::AssignInt { slot, .. }
-            | schema::StmtView::AssignBool { slot, .. }
-            | schema::StmtView::AssignField { slot, .. }
-            | schema::StmtView::AssignFieldInt { slot, .. }
-            | schema::StmtView::AssignPath { slot, .. }
-            | schema::StmtView::DefaultParameter { slot, .. }
-            | schema::StmtView::For { slot, .. }
-            | schema::StmtView::ForStrLines { slot, .. } => { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } },
+            &schema::StmtView::Assign { slot, .. }
+            | &schema::StmtView::AssignInt { slot, .. }
+            | &schema::StmtView::AssignBool { slot, .. }
+            | &schema::StmtView::AssignField { slot, .. }
+            | &schema::StmtView::AssignFieldInt { slot, .. }
+            | &schema::StmtView::AssignPath { slot, .. }
+            | &schema::StmtView::DefaultParameter { slot, .. }
+            | &schema::StmtView::For { slot, .. }
+            | &schema::StmtView::ForStrLines { slot, .. } => { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } },
             schema::StmtView::Guard {
                 target,
                 else_param_slot,
                 ..
             } => {
-                if self.visit_comp_target_written_slots(target, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
-                if let Some(slot) = else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
+                if self.visit_comp_target_written_slots(target.clone(), charge, visit)? { return Ok((true, initializer, scalar_writer)); }
+                if let Some(slot) = *else_param_slot { charge(1)?; if visit(slot)? { return Ok((true, initializer, scalar_writer)); } }
             }
-            schema::StmtView::PatternIf { mut branches, .. } => {
-                for branch in &mut branches {
+            schema::StmtView::PatternIf { branches, .. } => {
+                for branch in &mut branches.clone() {
                     charge(1)?;
                     let (_, _, captures) = branch?;
                     for capture in captures {
@@ -9543,14 +9596,14 @@ impl<'a> FullDecoder<'a> {
                     }
                 }
             }
-            schema::StmtView::PatternWhile { mut captures, .. } => {
-                for capture in &mut captures {
+            schema::StmtView::PatternWhile { captures, .. } => {
+                for capture in &mut captures.clone() {
                     charge(1)?;
                     if visit(capture?)? { return Ok((true, initializer, scalar_writer)); }
                 }
             }
-            schema::StmtView::Match { mut arms, .. } => {
-                for arm in &mut arms {
+            schema::StmtView::Match { arms, .. } => {
+                for arm in &mut arms.clone() {
                     charge(1)?;
                     let (pattern, _, _) = arm?;
                     if self.visit_pattern_capture_slots(pattern.raw() as usize, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
@@ -9558,11 +9611,11 @@ impl<'a> FullDecoder<'a> {
             }
             schema::StmtView::ForRecord { target, .. }
             | schema::StmtView::LetRecord { target, .. } => {
-                if self.visit_comp_target_written_slots(target, charge, visit)? { return Ok((true, initializer, scalar_writer)); }
+                if self.visit_comp_target_written_slots(target.clone(), charge, visit)? { return Ok((true, initializer, scalar_writer)); }
             }
-            schema::StmtView::ScanLines { line_slot, mut checks, .. } => {
-                charge(1)?; if visit(line_slot)? { return Ok((true, initializer, scalar_writer)); }
-                for check in &mut checks { charge(1)?; if visit(check?.counter_slot)? { return Ok((true, initializer, scalar_writer)); } }
+            schema::StmtView::ScanLines { line_slot, checks, .. } => {
+                charge(1)?; if visit(*line_slot)? { return Ok((true, initializer, scalar_writer)); }
+                for check in &mut checks.clone() { charge(1)?; if visit(check?.counter_slot)? { return Ok((true, initializer, scalar_writer)); } }
             }
             schema::StmtView::ScanBytes { config } => {
                 for slot in [config.block_depth_slot, config.code_seen_slot, config.comment_seen_slot,
@@ -16823,7 +16876,11 @@ impl<'a> FullDecoder<'a> {
     fn verify_callable_slot_initializers(&self) -> Result<(), IrVerifyError> {
         for instruction in self.instruction_range.clone() {
             let instruction_kind = self.store.tags[instruction].kind();
-            if instruction_kind == schema::InstructionKind::Expr {
+            if instruction_kind == schema::InstructionKind::Expr
+                && matches!(&*self.expression_view_ref(instruction)?,
+                    schema::ExprView::MatchExpr { .. } | schema::ExprView::PatternIf { .. } | schema::ExprView::ListPipeline { .. }
+                    | schema::ExprView::ListComp { .. } | schema::ExprView::MapComp { .. })
+            {
                 match self.expression_view(instruction)? {
                     schema::ExprView::MatchExpr { value, mut arms, .. } => {
                         let mut subject_type =
@@ -17052,8 +17109,8 @@ impl<'a> FullDecoder<'a> {
         if tag.kind() != schema::InstructionKind::Expr {
             return Ok(None);
         }
-        match self.expression_view(instruction)? {
-            schema::ExprView::Param(slot) => self.checked_slot_type(slot),
+        match &*self.expression_view_ref(instruction)? {
+            schema::ExprView::Param(slot) => self.checked_slot_type(*slot),
             schema::ExprView::Field { base, .. } => match self.derive_typed_callee_type(instruction) {
                 Ok(type_id) => Ok(Some(type_id)),
                 Err(error) => {
@@ -18241,7 +18298,16 @@ fn indexed_expr_can_complete_in(
         }
     }
 
-    Ok(match decoder.expression_view(instruction)? {
+    let view = decoder.expression_view_ref(instruction)?;
+    if matches!(&*view,
+        schema::ExprView::Param(_) | schema::ExprView::Str(_) | schema::ExprView::Int(_) | schema::ExprView::UInt(_)
+        | schema::ExprView::Bool(_) | schema::ExprView::Float(_) | schema::ExprView::Null | schema::ExprView::Unit
+        | schema::ExprView::Bytes(_) | schema::ExprView::Path(_) | schema::ExprView::Duration(_)
+        | schema::ExprView::PreparedRegex(_) | schema::ExprView::FunctionRef { .. } | schema::ExprView::EmptyMap)
+    {
+        return Ok(true);
+    }
+    Ok(match view.into_owned() {
         schema::ExprView::Binary {
             op,
             left,
@@ -19316,7 +19382,7 @@ fn indexed_stmt_operand_cannot_complete(
     let expression_cannot_complete = |expression: u32| {
         indexed_expr_can_complete(decoder, expression as usize, 0).map(|completes| !completes)
     };
-    Ok(match decoder.statement_view(instruction)? {
+    Ok(match &*decoder.statement_view_ref(instruction)? {
         schema::StmtView::Let { value, .. } => {
             expression_cannot_complete(value.raw())?
         }
@@ -19341,7 +19407,7 @@ fn indexed_stmt_operand_cannot_complete(
         }
         schema::StmtView::Print { args, .. } => {
             let mut cannot_complete = false;
-            for arg in args {
+            for arg in args.clone() {
                 if expression_cannot_complete(arg?.raw())? {
                     cannot_complete = true;
                     break;
@@ -19393,7 +19459,7 @@ fn indexed_loop_child_is_before_body(
     ) {
         return Ok(false);
     }
-    let child_is_source = match decoder.statement_view(loop_instruction)? {
+    let child_is_source = match &*decoder.statement_view_ref(loop_instruction)? {
         schema::StmtView::While { condition, .. }
         | schema::StmtView::PatternWhile { condition, .. } => condition.raw() as usize == child,
         schema::StmtView::For { iter, .. } | schema::StmtView::ForRecord { iter, .. } => {
@@ -19769,7 +19835,7 @@ impl FullVerifier {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
         let tables = VerificationTables::new(store);
-        let mut producer_index = verify_schemes::GroundProducerIndex::new(store)?;
+        let mut producer_index = verify_schemes::GroundProducerIndex::with_types(store, &tables.types)?;
         Self::verify_resource_transfer_sites(store)?;
         Self::verify_checked_call_target_coverage(store)?;
         let mut wire_types = rustc_hash::FxHashSet::default();
