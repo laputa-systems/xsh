@@ -39,6 +39,43 @@ impl ReturnDeclaration {
     fn kind(&self) -> Option<CallableKind> { self.function.map(|(_, kind)| kind) }
 }
 
+#[derive(Default)]
+pub(super) struct RecordShorthandIndex {
+    by_source: rustc_hash::FxHashMap<crate::source::SourceId, Vec<ExprId>>,
+}
+
+impl RecordShorthandIndex {
+    pub(super) fn build(program: &ArenaProgram) -> Self {
+        let mut by_source = rustc_hash::FxHashMap::<crate::source::SourceId, Vec<ExprId>>::default();
+        for id in program.arena.source_rows().record_expr_ids() {
+            let ArenaExprKind::Record(fields) = program.arena.expr_kind(id) else {
+                continue;
+            };
+            for field in program.arena.record_fields(fields) {
+                if let ArenaRecordFieldKind::Shorthand { span, .. } = &field.kind {
+                    let ids = by_source.entry(program.arena.span(*span).source_id).or_default();
+                    if ids.last() != Some(&id) {
+                        ids.push(id);
+                    }
+                }
+            }
+        }
+        Self { by_source }
+    }
+
+    fn records_in(&self, view: &CheckBundleView<'_>) -> Vec<ExprId> {
+        if view.all_sources {
+            return self.by_source.values().flatten().copied().collect();
+        }
+        view.source_ids
+            .iter()
+            .filter_map(|source| self.by_source.get(source))
+            .flatten()
+            .copied()
+            .collect()
+    }
+}
+
 #[derive(Clone, Default)]
 pub(super) struct ReturnInferenceIndex {
     references: Vec<(Span, Name, Option<ExprId>)>,
@@ -54,13 +91,16 @@ impl ReturnInferenceIndex {
     }
 
     pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
+        Self::collect_with(view, &RecordShorthandIndex::build(view.program))
+    }
+
+    pub(super) fn collect_with(view: &CheckBundleView<'_>, records: &RecordShorthandIndex) -> Self {
         let program = view.program;
         let expressions = view.expr_ids();
         let statements = view.stmt_ids();
-        let rows = program.arena.source_rows();
         let mut references = Vec::new();
-        let mut reference_exprs = expressions.clone();
-        reference_exprs.extend(rows.record_expr_ids());
+        let mut reference_exprs = expressions;
+        reference_exprs.extend(records.records_in(view));
         reference_exprs.sort_unstable();
         reference_exprs.dedup();
         for id in reference_exprs {
@@ -1167,6 +1207,107 @@ mod tests {
             let declaration = checked.checked_declarations.functions.values().find(|declaration| declaration.name == name).unwrap();
             assert_eq!(checked.function_return_types.get(&declaration.body), Some(&expected), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod shorthand_index_tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::arena::ArenaProgramBuilder;
+    use crate::syntax::parser::Parser;
+
+    fn whole_arena_references(view: &CheckBundleView<'_>) -> Vec<(Span, Name, Option<ExprId>)> {
+        let program = view.program;
+        let mut references = Vec::new();
+        let mut reference_exprs = view.expr_ids();
+        reference_exprs.extend(program.arena.source_rows().record_expr_ids());
+        reference_exprs.sort_unstable();
+        reference_exprs.dedup();
+        for id in reference_exprs {
+            let expr = program.arena.expr(id);
+            if view.contains_source(expr.span.source_id)
+                && let ArenaExprKind::Ident(name) = expr.kind
+            {
+                references.push((expr.span, name, Some(id)));
+            }
+            if let ArenaExprKind::Record(fields) = expr.kind {
+                for field in program.arena.record_fields(fields) {
+                    if let ArenaRecordFieldKind::Shorthand { name, span } = &field.kind {
+                        let span = program.arena.span(*span);
+                        if view.contains_source(span.source_id) {
+                            references.push((span, *name, None));
+                        }
+                    }
+                }
+            }
+        }
+        for statement_id in view.stmt_ids() {
+            let stmt = program.arena.stmt(statement_id);
+            if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
+                references.push((stmt.span, name, None));
+            }
+        }
+        references.sort_unstable_by_key(|(span, _, _)| (span.source_id, span.start()));
+        references
+    }
+
+    #[test]
+    fn views_read_the_same_references_as_a_scan_of_every_record_in_the_arena() {
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let texts = [
+            (0, "use first
+use second
+let name = 1
+let row = {name, other: name}
+name
+"),
+            (1, "export pure left(n: Int) { let row = {n}; row }
+export pure again(m: Int) { {m, m} }
+"),
+            (2, "export pure right(k: Int) { let pair = {k, other: k}; pair }
+export const plain = {value: 1}
+"),
+            (3, "export pure shared(q: Int) { {q} }
+"),
+        ];
+        let parsed = texts
+            .iter()
+            .map(|&(id, text)| {
+                let parsed = Parser::parse_source_into_arena_builder(SourceId::new(id), text, &mut builder);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                parsed
+            })
+            .collect::<Vec<_>>();
+        for (name, parsed) in [("first", &parsed[1]), ("second", &parsed[2]), ("third", &parsed[3])] {
+            let symbol = builder.symbol_owner().intern(name);
+            builder.push_arena_module(name.to_string(), symbol, parsed.source_id(), parsed.statements);
+        }
+        let program = builder.finish_with_statements(parsed[0].statements);
+        let _symbol_owner = program.symbol_owner().enter();
+        let index = RecordShorthandIndex::build(&program);
+        let mut views = vec![
+            CheckBundleView::whole_program(&program),
+            CheckBundleView::for_module(&program, parsed[0].statements, None, Some(SourceId::new(0))),
+        ];
+        for module in &program.modules {
+            views.push(CheckBundleView::for_module_owner(&program, module, None, module.source_id));
+        }
+        for view in &views {
+            let expected = whole_arena_references(view);
+            assert!(!expected.is_empty());
+            assert_eq!(
+                ReturnInferenceIndex::collect_with(view, &index).references,
+                expected
+            );
+            assert_eq!(ReturnInferenceIndex::collect(view).references, expected);
+        }
+        let shorthand_sources = views
+            .iter()
+            .skip(2)
+            .map(|view| index.records_in(view).len())
+            .collect::<Vec<_>>();
+        assert_eq!(shorthand_sources, vec![2, 1, 1], "each module reads only its own records");
     }
 }
 

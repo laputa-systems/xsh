@@ -1,7 +1,7 @@
 use super::{
     CacheTrace, CheckBundleView, CheckOutput, Checker, Diagnostic, RecordConstructors,
     ResolvedBindings, ResourceTransferFacts, UserModuleSig,
-    infer_return::ReturnInferenceIndex, local_inference::LocalInference,
+    infer_return::{RecordShorthandIndex, ReturnInferenceIndex}, local_inference::LocalInference,
 };
 use crate::sema::constants::PreparedConstants;
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId};
@@ -133,6 +133,7 @@ impl ModuleRecords {
     ) -> Self {
         let program = view.program;
         let mut prepared = FxHashMap::<Arc<str>, Arc<ModuleRecord>>::default();
+        let shorthand_records = std::cell::OnceCell::new();
         for module in view.modules.iter().copied() {
             let source_id = module.source_id;
             let role = if module.internal {
@@ -166,6 +167,12 @@ impl ModuleRecords {
                     let (owner_facts, visible_bindings) = PreparedModuleFacts::prepare_owner(
                         &module_view,
                         &dependency_facts,
+                        shorthand_records.get_or_init(|| RecordShorthandIndex::build(program)),
+                        !view.modules.iter().any(|dependency| {
+                            dependency.key != module.key
+                                && dependency_keys.contains(&dependency.key)
+                                && module_view.contains_source(dependency.source_id)
+                        }),
                     );
                     let owner_facts = Arc::new(owner_facts);
                     let mut visible_facts = dependency_facts;
@@ -223,6 +230,8 @@ impl ModuleRecords {
                     let (owner_facts, visible_bindings) = PreparedModuleFacts::prepare_owner(
                         &root_view,
                         &dependency_facts,
+                        shorthand_records.get_or_init(|| RecordShorthandIndex::build(program)),
+                        !view.modules.iter().any(|dependency| root_view.contains_source(dependency.source_id)),
                     );
                     let owner_facts = Arc::new(owner_facts);
                     let mut wire_diagnostics = owner_facts.wire_diagnostics.clone();
@@ -487,6 +496,8 @@ impl PreparedModuleFacts {
     fn prepare_owner(
         view: &CheckBundleView<'_>,
         dependencies: &PreparedModuleFacts,
+        shorthand_records: &RecordShorthandIndex,
+        dependency_sources_disjoint: bool,
     ) -> (Self, ResolvedBindings) {
         let program = view.program;
         let (owner_bindings, assignment_facts) =
@@ -497,7 +508,7 @@ impl PreparedModuleFacts {
         let mut resolved_bindings = owner_bindings;
         visible_bindings.resolve_owner_module_fields(&mut resolved_bindings, program);
         let resolved_bindings = Arc::new(resolved_bindings);
-        let return_inference_index = Arc::new(ReturnInferenceIndex::collect(view));
+        let return_inference_index = Arc::new(ReturnInferenceIndex::collect_with(view, shorthand_records));
         let local_inference = LocalInference::prepare(view);
         let regex_diagnostics = Checker::prepare_regex_literals(view);
         let mut record_constructors = RecordConstructors::collect_bundle(view);
@@ -509,6 +520,7 @@ impl PreparedModuleFacts {
                 view,
                 &visible_constructors,
                 &visible_bindings,
+                if dependency_sources_disjoint { &resolved_bindings } else { &visible_bindings },
                 &dependencies.prepared_constants,
             );
         record_constructors.merge_instance_facts(&owner_instances);
@@ -579,6 +591,7 @@ impl PreparedModuleFacts {
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
         checker.resolved_bindings = self.resolved_bindings.clone();
+        checker.prepared_bindings = Some(super::PreparedBindings::new(&self.resolved_bindings));
         checker.assignment_facts = self.assignment_facts.clone();
         checker.return_inference_index = Some(self.return_inference_index.clone());
         checker.local_inference = self.local_inference.clone();
@@ -975,5 +988,172 @@ mod tests {
         assert!(!Arc::ptr_eq(shared, &other_module));
         assert_ne!(shared.source_id(), other_module.source_id());
 
+    }
+
+    struct Workspace {
+        program: Arc<ArenaProgram>,
+        sources: crate::source::SourceMap,
+        root: crate::syntax::arena::ArenaRange,
+        root_source: SourceId,
+    }
+
+    fn workspace(modules: &[(&str, &str)], root_text: &str) -> Workspace {
+        let mut sources = crate::source::SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(512);
+        let root_source = sources.add_file("entry.xsh", root_text.to_owned());
+        let root = Parser::parse_source_into_arena_builder(root_source, root_text, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        let mut parsed = vec![(root.statements, root_text)];
+        for &(name, text) in modules {
+            let source_id = sources.add_file(format!("{name}.xsh"), text.to_owned());
+            let module = Parser::parse_source_into_arena_builder(source_id, text, &mut builder);
+            assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+            let symbol = builder.symbol_owner().intern(name);
+            builder.push_arena_module(name.to_string(), symbol, module.source_id(), module.statements);
+            parsed.push((module.statements, text));
+        }
+        for (statements, text) in parsed {
+            let mut imports = text.lines().filter_map(|line| line.strip_prefix("use "));
+            for statement in builder.statement_ids(statements) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from(imports.next().unwrap()));
+                }
+            }
+        }
+        Workspace {
+            program: Arc::new(builder.finish_with_statements(root.statements)),
+            sources,
+            root: root.statements,
+            root_source,
+        }
+    }
+
+    const CHAIN_MODULES: [(&str, &str); 4] = [
+        (
+            "base",
+            "##! Base values.\n## The base.\nexport const BASE = 10\n## Doubles.\nexport pure double(v: Int) -> Int { v * 2 }\n",
+        ),
+        ("limit", "##! Limits.\n## The limit.\nexport const LIMIT = 5\n"),
+        (
+            "left",
+            "##! Left values.\nuse base\n## Left.\nexport const LEFT = base.BASE + 1\n## Row.\nexport pure row(n: Int) { let value = n; {value} }\n",
+        ),
+        (
+            "right",
+            "##! Right values.\nuse limit\n## Right.\nexport const RIGHT = limit.LIMIT\n## Binds.\nexport proc bind(binary: Str) { let flag = true\n  run echo flag\n  print $binary\n}\n",
+        ),
+    ];
+    const CHAIN_ROOT: &str = "use left\nuse right\nlet total = left.LEFT + right.RIGHT\nlet shown = left.row(total)\nprint $total\n";
+
+    fn check_workspace(workspace: &Workspace) -> (CheckOutput, SharedModuleRecords) {
+        let records = SharedModuleRecords::default();
+        let output = records.check_root(&workspace.program, &workspace.sources, workspace.root, workspace.root_source);
+        (output, records)
+    }
+
+    #[test]
+    fn module_outputs_that_extend_their_prepared_bindings_merge_only_their_published_sites() {
+        let workspace = workspace(&CHAIN_MODULES, CHAIN_ROOT);
+        let (output, records) = check_workspace(&workspace);
+        let errors = output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Error)
+            .collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(
+            output.prepared_bindings.is_some(),
+            "every module merged by its own entries, so the entry bindings still derive from their prepared base"
+        );
+        let records = records.0.lock().unwrap();
+        let mut unchanged = 0;
+        let mut extended = 0;
+        for record in records.values().filter(|record| record.key.role == ModuleRecordRole::User) {
+            let checked = record.checked.get().expect("every reachable module is checked");
+            let prepared = checked.output.prepared_bindings.as_ref().expect("module checkers install prepared bindings");
+            let base = prepared.base.upgrade().expect("the record owns its prepared bindings");
+            assert!(Arc::ptr_eq(&base, &record.prepared_facts.resolved_bindings));
+            if Arc::ptr_eq(&checked.output.resolved_bindings, &base) {
+                unchanged += 1;
+                assert!(prepared.command_sites.is_empty());
+            } else {
+                extended += 1;
+                assert!(!prepared.command_sites.is_empty());
+                assert!(checked.output.resolved_bindings.extends_with_command_sites(&base, &prepared.command_sites));
+            }
+            let mut merged = (*output.resolved_bindings).clone();
+            merged.merge_visible_in_place(&checked.output.resolved_bindings);
+            assert!(
+                merged.same_facts(&output.resolved_bindings),
+                "the entry bindings already hold everything module `{}` resolved",
+                record.key.module_key
+            );
+        }
+        assert_eq!(unchanged + extended, 4);
+        assert!(unchanged >= 1);
+    }
+
+    #[test]
+    fn merging_command_sites_matches_a_full_merge_and_rejects_conflicts() {
+        let workspace = workspace(&CHAIN_MODULES, CHAIN_ROOT);
+        let _symbol_owner = workspace.program.symbol_owner().enter();
+        let base = Arc::new(ResolvedBindings::collect(&workspace.program));
+        let (&(span, name), &binding) = base.value_sites.iter().next().expect("the entry reads a value");
+        let other_name = super::super::Name::intern("published_site");
+        let sites = std::collections::BTreeMap::from([((span, other_name), binding)]);
+        let mut module = (*base).clone();
+        module.value_sites.insert((span, other_name), binding);
+        assert!(module.extends_with_command_sites(&base, &sites));
+        assert!(!module.extends_with_command_sites(&base, &std::collections::BTreeMap::new()));
+        let mut entry = (*base).clone();
+        let mut full = (*base).clone();
+        full.merge_visible_in_place(&module);
+        entry.merge_command_sites(&sites);
+        assert!(entry.same_facts(&full));
+        assert!(entry.value_sites.contains_key(&(span, other_name)));
+        assert_eq!(entry.value_sites.len(), base.value_sites.len() + 1);
+        entry.merge_command_sites(&sites);
+        assert_eq!(entry.value_sites.len(), base.value_sites.len() + 1);
+        let conflicting = std::collections::BTreeMap::from([((span, name), super::super::BindingId::args())]);
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut entry = (*base).clone();
+            entry.merge_command_sites(&conflicting);
+        }));
+        assert!(rejected.is_err());
+    }
+
+    #[test]
+    fn module_preparation_reads_only_its_own_constants_in_a_multi_module_bundle() {
+        let workspace = workspace(&CHAIN_MODULES, CHAIN_ROOT);
+        let _symbol_owner = workspace.program.symbol_owner().enter();
+        let view = CheckBundleView::for_root(
+            &workspace.program,
+            workspace.root,
+            Some(&workspace.sources),
+            Some(workspace.root_source),
+        );
+        let mut cache = ModuleRecordCache::default();
+        let records = cache.get_or_prepare(&view, ArgsDomain::Str);
+        let left = records.module("left").unwrap();
+        let base = records.module("base").unwrap();
+        let program = &workspace.program;
+        let in_source = |facts: &PreparedModuleFacts, source: SourceId| {
+            facts
+                .prepared_constants
+                .values
+                .keys()
+                .all(|&id| program.arena.expr_span(id).source_id == source)
+        };
+        assert!(!left.owner_facts().prepared_constants.values.is_empty());
+        assert!(in_source(left.owner_facts(), left.source_id()));
+        assert!(in_source(base.owner_facts(), base.source_id()));
+        assert!(left.prepared_facts().prepared_constants.values.len()
+            >= left.owner_facts().prepared_constants.values.len()
+                + base.owner_facts().prepared_constants.values.len());
+        assert!(
+            records.root().prepared_facts().prepared_constants.values.len()
+                >= records.root().owner_facts().prepared_constants.values.len()
+                    + left.owner_facts().prepared_constants.values.len()
+        );
     }
 }
