@@ -143,8 +143,12 @@ impl ExpressionTypes {
         self.value(self.slots.for_expr(id))
     }
 
+    fn value_id(&self, slot: usize) -> Option<TypeId> {
+        slot.checked_sub(self.first_slot).and_then(|index| self.values.get(index)).and_then(|value| *value)
+    }
+
     fn value(&self, slot: usize) -> Option<&super::Type> {
-        slot.checked_sub(self.first_slot).and_then(|index| self.values.get(index)).and_then(|value| value.map(|id| self.types.get(id)))
+        self.value_id(slot).map(|id| self.types.get(id))
     }
 
     fn insert_slot(&mut self, slot: usize, ty: super::Type) {
@@ -198,19 +202,23 @@ impl ExpressionTypes {
         pairs.into_iter()
     }
 
+    fn needs_finalization(&self, id: TypeId) -> bool {
+        let flags = self.types.flags(id);
+        flags.inference || flags.deep
+    }
+
     pub(super) fn for_each_sorted_inference_mut(&mut self, mut visit: impl FnMut(&Span, &mut super::Type)) {
         let mut order: Vec<_> = self.active.iter().filter_map(|&slot| {
             let index = slot as usize;
-            self.value(index).map(|_| (self.slots.spans[index], Some(index)))
-        }).chain(self.other.keys().map(|&span| (span, None))).collect();
+            let id = self.value_id(index)?;
+            self.needs_finalization(id).then_some((self.slots.spans[index], Some(index)))
+        }).chain(self.other.iter().filter(|&(_, &id)| self.needs_finalization(id)).map(|(&span, _)| (span, None))).collect();
         order.sort_unstable_by_key(|(span, _)| *span);
         for (span, slot) in order {
             let id = match slot {
                 Some(slot) => self.values[slot - self.first_slot],
                 None => self.other.get(&span).copied(),
             }.expect("sorted expression fact remains present");
-            let flags = self.types.flags(id);
-            if !flags.inference && !flags.deep { continue; }
             let mut ty = self.types.get(id).clone();
             visit(&span, &mut ty);
             let replacement = self.types.intern(ty);
@@ -371,6 +379,36 @@ mod tests {
         facts.insert(second, shared.clone());
         facts.insert(first, shared.clone());
         assert_eq!(facts.into_map(), std::collections::BTreeMap::from([(first, shared.clone()), (second, shared)]));
+    }
+
+    #[test]
+    fn finalization_visits_only_unfinished_facts_in_span_order() {
+        use super::super::Type;
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let span = |start| Span::new(SourceId::new(0), start, start + 1);
+        let variable = constraints.fresh(span(100));
+        let slotted = [span(6), span(2), span(4)];
+        let slots = FactSlots {
+            spans: slotted.to_vec(),
+            by_span: slotted.iter().copied().enumerate().map(|(index, span)| (span, index as u32)).collect(),
+            by_expr: Vec::new(),
+        };
+        let mut facts = ExpressionTypes::default();
+        facts.attach(std::sync::Arc::new(slots));
+        facts.insert(span(6), Type::List(Box::new(variable.clone())));
+        facts.insert(span(2), Type::Int);
+        facts.insert(span(4), variable.clone());
+        facts.insert(span(5), Type::Optional(Box::new(variable)));
+        facts.insert(span(1), Type::Str);
+        let mut visited = Vec::new();
+        facts.for_each_sorted_inference_mut(|span, ty| {
+            visited.push(*span);
+            *ty = Type::Bool;
+        });
+        assert_eq!(visited, [span(4), span(5), span(6)]);
+        assert_eq!(facts.get(&span(1)), Some(&Type::Str));
+        assert_eq!(facts.get(&span(2)), Some(&Type::Int));
+        for finished in [span(4), span(5), span(6)] { assert_eq!(facts.get(&finished), Some(&Type::Bool)); }
     }
 
     #[test]
