@@ -1176,12 +1176,14 @@ test test_docker_gate_evaluates_context_root_path_expression { |ctx|
   let cargo_bin = fp"{cargo_home}/bin"
   cargo_home.mkdir()
   cargo_bin.mkdir()
-  fp"{cargo_bin}/kache".write(
-    f"""#!{ctx.xsh_bin}
+  for tool in ["kache", "kache-engine"] {
+    fp"{cargo_bin}/{tool}".write(
+      f"""#!{ctx.xsh_bin}
 exit 0
 """,
-    mode: 0o755,
-  )
+      mode: 0o755,
+    )
+  }
   let log = fp"{tools}/docker.log"
   fp"{tools}/docker".write(
     f"""#!{ctx.xsh_bin}
