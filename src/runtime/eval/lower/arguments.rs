@@ -882,7 +882,7 @@ mod named_spread_lowering_tests {
                 super::super::BuildScratch::default(),
             )),
             global_bindings: None,
-            module_exports: Default::default(),
+            pass_memo: Default::default(),
         };
         crate::mem_track::enable_tracking();
         crate::mem_track::begin_stage();

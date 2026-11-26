@@ -75,14 +75,18 @@ enum PhysicalReadContract<'a> {
     OptionalPayload(&'a Type),
 }
 
-enum LoweredContract {
-    Storage(Type),
-    Checked(Type),
+enum LoweredContract<'t> {
+    Storage(&'t Type),
+    Checked(std::borrow::Cow<'t, Type>),
 }
 
-impl LoweredContract {
+impl LoweredContract<'_> {
+    fn ty(&self) -> &Type {
+        match self { Self::Storage(ty) => ty, Self::Checked(ty) => ty }
+    }
+
     fn into_type(self) -> Type {
-        match self { Self::Storage(ty) | Self::Checked(ty) => ty }
+        match self { Self::Storage(ty) => ty.clone(), Self::Checked(ty) => ty.into_owned() }
     }
 }
 
@@ -637,7 +641,7 @@ pub(in crate::runtime::eval) fn probe_compact_lower_constructed_bodies_in_scope(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(super::ProducerDemand::Absent), ..BuildScratch::default() })),
         global_bindings: None,
-        module_exports: Default::default(),
+        pass_memo: Default::default(),
     };
     probe.probe_program();
     probe.output
@@ -779,7 +783,7 @@ pub(super) fn lower_compact_function_units_into(
         function_defs: Rc::clone(&function_defs),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
         global_bindings: None,
-        module_exports: Default::default(),
+        pass_memo: Default::default(),
     };
     let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
     let mut scratch = Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() }));
@@ -814,7 +818,7 @@ pub(super) fn lower_compact_function_units_into(
             function_defs: Rc::clone(&function_defs),
             scratch: Rc::clone(&scratch),
             global_bindings: Some(&global_bindings),
-            module_exports: Default::default(),
+            pass_memo: Default::default(),
         };
         let (scc_member_count, scc_group) = index.scc_metadata(&function);
         let unit = probe.lower_function_unit(
@@ -958,7 +962,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch { producer_demand: Some(producer_demand), ..BuildScratch::default() })),
         global_bindings: Some(&global_bindings),
-        module_exports: Default::default(),
+        pass_memo: Default::default(),
     };
     let root = program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -999,7 +1003,7 @@ fn compact_top_level_known(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         global_bindings: None,
-        module_exports: Default::default(),
+        pass_memo: Default::default(),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -1036,7 +1040,7 @@ fn compact_function_top_level_known(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         global_bindings: None,
-        module_exports: Default::default(),
+        pass_memo: Default::default(),
     };
     let mut prefix = CompactTopLevelPrefix::for_namespace(program, scope, declarations, namespace);
     prefix.advance_to_recording(&probe, function_id);
@@ -1122,6 +1126,7 @@ fn compact_stmt_contains_function_def(
 struct CompactFunctionIndex {
     defs: Vec<CompactFunctionDef>,
     index_of: FxHashMap<LoweredFunctionKey, usize>,
+    call_edges: Vec<Vec<usize>>,
     /// `[pure, proc]` component metadata keyed by function.
     scc: [FxHashMap<LoweredFunctionKey, (usize, Option<usize>)>; 2],
 }
@@ -1134,14 +1139,31 @@ impl CompactFunctionIndex {
             .enumerate()
             .map(|(index, function)| (function.key, index))
             .collect::<FxHashMap<_, _>>();
+        let call_edges = defs
+            .iter()
+            .map(|function| compact_function_call_edges(program, function.id, function.namespace, &index_of))
+            .collect::<Vec<_>>();
+        let distinct_keys = (index_of.len() == defs.len()).then_some(call_edges.as_slice());
         let scc = [
-            compact_scc_groups(program, &defs, true),
-            compact_scc_groups(program, &defs, false),
+            compact_scc_groups(program, &defs, distinct_keys, true),
+            compact_scc_groups(program, &defs, distinct_keys, false),
         ];
         Self {
             defs,
             index_of,
+            call_edges,
             scc,
+        }
+    }
+
+    fn call_edges(&self, program: &ArenaProgram, function: &CompactFunctionDef) -> std::borrow::Cow<'_, [usize]> {
+        let indexed = self.index_of.get(&function.key).copied().filter(|&index| {
+            let definition = &self.defs[index];
+            definition.id == function.id && definition.namespace == function.namespace
+        });
+        match indexed {
+            Some(index) => std::borrow::Cow::Borrowed(self.call_edges[index].as_slice()),
+            None => std::borrow::Cow::Owned(compact_function_call_edges(program, function.id, function.namespace, &self.index_of)),
         }
     }
 
@@ -1188,23 +1210,37 @@ impl CompactFunctionIndex {
 fn compact_scc_groups(
     program: &ArenaProgram,
     defs: &[CompactFunctionDef],
+    distinct_key_call_edges: Option<&[Vec<usize>]>,
     pure: bool,
 ) -> FxHashMap<LoweredFunctionKey, (usize, Option<usize>)> {
-    let selected = defs
-        .iter()
-        .filter(|candidate| (candidate.kind != CallableKind::Proc) == pure)
+    let members = (0..defs.len())
+        .filter(|&index| (defs[index].kind != CallableKind::Proc) == pure)
         .collect::<Vec<_>>();
-    let index_of = selected
-        .iter()
-        .enumerate()
-        .map(|(index, function)| (function.key, index))
-        .collect::<FxHashMap<_, _>>();
-    let adjacency = selected
-        .iter()
-        .map(|function| {
-            compact_function_call_edges(program, function.id, function.namespace, &index_of)
-        })
-        .collect::<Vec<_>>();
+    let adjacency = match distinct_key_call_edges {
+        Some(call_edges) => {
+            let mut member_position = vec![None; defs.len()];
+            for (position, &index) in members.iter().enumerate() {
+                member_position[index] = Some(position);
+            }
+            members
+                .iter()
+                .map(|&index| call_edges[index].iter().filter_map(|&callee| member_position[callee]).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        }
+        None => {
+            let index_of = members
+                .iter()
+                .enumerate()
+                .map(|(position, &index)| (defs[index].key, position))
+                .collect::<FxHashMap<_, _>>();
+            members
+                .iter()
+                .map(|&index| {
+                    compact_function_call_edges(program, defs[index].id, defs[index].namespace, &index_of)
+                })
+                .collect::<Vec<_>>()
+        }
+    };
     let mut groups = FxHashMap::default();
     for (group, scc) in compact_tarjan_sccs(adjacency).into_iter().enumerate() {
         let metadata = if scc.len() > 1 {
@@ -1213,7 +1249,7 @@ fn compact_scc_groups(
             (1, None)
         };
         for member in scc {
-            groups.insert(selected[member].key, metadata);
+            groups.insert(defs[members[member]].key, metadata);
         }
     }
     groups
@@ -1253,15 +1289,11 @@ fn compact_function_dependency_keys(
     program: &ArenaProgram,
     function: &CompactFunctionDef,
 ) -> Vec<LoweredFunctionKey> {
-    compact_function_call_edges(
-        program,
-        function.id,
-        function.namespace,
-        &functions.index_of,
-    )
-    .into_iter()
-    .map(|index| functions.defs[index].key)
-    .collect()
+    functions
+        .call_edges(program, function)
+        .iter()
+        .map(|&index| functions.defs[index].key)
+        .collect()
 }
 
 fn compact_collect_block_call_edges(
@@ -1614,7 +1646,14 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     function_defs: Rc<RefCell<Option<Rc<CompactFunctionIndex>>>>,
     scratch: Rc<RefCell<BuildScratch>>,
     global_bindings: Option<&'a FxHashMap<Option<Name>, Vec<(&'a BindingId, &'a crate::sema::check::BindingDeclaration)>>>,
-    module_exports: Rc<RefCell<FxHashMap<String, Option<Vec<LoweredModuleExport>>>>>,
+    pass_memo: Rc<RefCell<LoweringPassMemo>>,
+}
+
+#[derive(Default)]
+struct LoweringPassMemo {
+    module_exports: FxHashMap<String, Option<Vec<LoweredModuleExport>>>,
+    module_top_level_known: FxHashMap<Name, FxHashMap<Name, LoweredTopLevelBinding>>,
+    script_arguments: Option<Type>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2505,7 +2544,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn script_arguments_type(&self) -> Type {
-        script_arguments_type(self.program, &self.scope, self.declarations)
+        if let Some(ty) = &self.pass_memo.borrow().script_arguments { return ty.clone(); }
+        let ty = script_arguments_type(self.program, &self.scope, self.declarations);
+        self.pass_memo.borrow_mut().script_arguments = Some(ty.clone());
+        ty
     }
 
     fn append_immutable_top_level_captures(&self, slots: &mut SlotScope, reads: Option<&std::collections::BTreeSet<BindingId>>, within: Span) -> LoweredTopLevelSlots {
@@ -6316,7 +6358,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let key = use_stmt.resolved.clone()?;
                 let path = self.program.arena.names(use_stmt.path).collect::<Vec<_>>();
                 let namespace = compact_use_import_namespace(self.program, use_id)?;
-                let exports = self.module_exports.borrow_mut().entry(key.to_string()).or_insert_with(|| {
+                let exports = self.pass_memo.borrow_mut().module_exports.entry(key.to_string()).or_insert_with(|| {
                     compact_module_exports_for_use(
                         self.program,
                         key.as_ref(),
@@ -6331,6 +6373,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let module = self.scope.module_with_key(key.as_ref())?;
                 let module_statement_ids =
                     self.program.module_statements(module).collect::<Vec<_>>();
+                let cached_known = self.pass_memo.borrow().module_top_level_known.get(&module.name).cloned();
+                let top_level_known = cached_known.unwrap_or_else(|| {
+                    let known = compact_top_level_known(
+                        self.program,
+                        &self.scope,
+                        self.declarations,
+                        self.qualified_schemes,
+                        self.source,
+                        self.sources,
+                        Some(module.name),
+                        self.functions,
+                    );
+                    self.pass_memo.borrow_mut().module_top_level_known.insert(module.name, known.clone());
+                    known
+                });
                 let module_lowered = {
                     let mut probe = CompactLowerConstructProbe {
                         program: self.program,
@@ -6342,23 +6399,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         sources: self.sources,
                         current_namespace: Some(module.name),
                         functions: self.functions,
-                        top_level_known: compact_top_level_known(
-                            self.program,
-                            &self.scope,
-                            self.declarations,
-                            self.qualified_schemes,
-                            self.source,
-                            self.sources,
-                            Some(module.name),
-                            self.functions,
-                        ),
+                        top_level_known,
                         output: CompactLowerConstructProbeOutput::default(),
                         last_blocker_detail: None,
                         stdlib_linkage: StdlibLowerLinkage::Local,
                         function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
                         global_bindings: self.global_bindings,
-                        module_exports: Rc::clone(&self.module_exports),
+                        pass_memo: Rc::clone(&self.pass_memo),
                     };
                     probe.lower_program_statements(&module_statement_ids)
                 };
@@ -6837,8 +6885,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         id: StmtId,
         known: &mut FxHashMap<Name, LoweredTopLevelBinding>,
     ) {
-        let stmt = self.program.arena.stmt(id);
-        match stmt.kind {
+        let kind = self.program.arena.stmt_kind(id);
+        match kind {
             // `export let X = …` inside a module makes `X` a module-scope binding
             // that the module's functions may capture; record the inner binding.
             ArenaStmtKind::Export(inner) => self.record_top_level_binding(inner, known),
@@ -6883,7 +6931,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ty,
                 initializer,
             } => {
-                let mutable = matches!(stmt.kind, ArenaStmtKind::Var { .. });
+                let mutable = matches!(kind, ArenaStmtKind::Var { .. });
                 if let (ArenaBindingTargetKind::Record { .. }, ArenaExprOrRun::Expr(value)) =
                     (&self.program.arena.binding_target(target).kind, initializer)
                 {
@@ -8333,21 +8381,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    fn storage_read_contract<'t>(&self, id: ExprId, slots: &'t SlotScope) -> Option<PhysicalReadContract<'t>> {
+    fn storage_read_contract<'t>(&self, id: ExprId, slots: &'t SlotScope, checked: Option<&Type>) -> Option<PhysicalReadContract<'t>> {
         if !matches!(self.program.arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) { return None; }
         let stored = self.stored_expression_type(id, slots)?;
-        let checked = self.canonical_read_type(self.bodies.expr_types.get(&id)?.clone());
-        if checked == Type::Any || self.read_type_has_inference_or_recovery(&checked) { return None; }
+        let checked = self.canonical_read_type_view(checked?);
+        let checked = checked.as_ref();
+        if *checked == Type::Any || self.read_type_has_inference_or_recovery(checked) { return None; }
         if let Type::Optional(payload) = stored
-            && payload.as_ref() == &checked
+            && payload.as_ref() == checked
         {
             return Some(if matches!(payload.as_ref(), Type::Record(_)) && payload.contains_typed_callable()
                 && !payload.contains_any() && !payload.contains_inference() && !payload.contains_recovery()
             { PhysicalReadContract::Stored(stored) } else { PhysicalReadContract::OptionalPayload(payload) });
         }
-        let checked_storage = *stored == checked;
+        let checked_storage = stored == checked;
         if !checked_storage && self.read_type_has_inference_or_recovery(stored) { return None; }
-        if self.read_type_has_any(stored) || !(checked_storage || only_optional_read_narrowing(stored, &checked)) { return None; }
+        if self.read_type_has_any(stored) || !(checked_storage || only_optional_read_narrowing(stored, checked)) { return None; }
         Some(PhysicalReadContract::Stored(stored))
     }
 
@@ -8382,44 +8431,45 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.canonicalize_checked_type(ty)
     }
 
-    fn lowered_expression_contract(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<Type> {
-        self.lowered_expression_contract_source(id, lowered, slots).map(LoweredContract::into_type)
+    fn canonical_read_type_view<'t>(&self, ty: &'t Type) -> std::borrow::Cow<'t, Type> {
+        if self.shared_read_type_facts(ty).is_some_and(|facts| facts.canonical) { return std::borrow::Cow::Borrowed(ty); }
+        std::borrow::Cow::Owned(self.canonicalize_checked_type(ty.clone()))
     }
 
     fn concrete_lowered_expression_contract(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<Type> {
-        match self.lowered_expression_contract_source(id, lowered, slots)? {
-            LoweredContract::Storage(ty) => Some(ty),
-            LoweredContract::Checked(ty) => (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()).then_some(ty),
+        match self.lowered_expression_contract_source(id, lowered, slots, self.bodies.expr_types.get(&id))? {
+            LoweredContract::Storage(ty) => Some(ty.clone()),
+            LoweredContract::Checked(ty) => (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery()).then(|| ty.into_owned()),
         }
     }
 
-    fn lowered_expression_contract_source(&self, id: ExprId, lowered: BuildExprId, slots: &SlotScope) -> Option<LoweredContract> {
+    fn lowered_expression_contract_source<'t>(&self, id: ExprId, lowered: BuildExprId, slots: &'t SlotScope, checked: Option<&'t Type>) -> Option<LoweredContract<'t>> {
         let storage_selects_contract = match self.scratch.borrow().expressions.get(lowered.index()) {
             None | Some(BuildExprRow::CheckedValue { .. }) => true,
             Some(BuildExprRow::Param(slot)) => self.source_slot(id, slots) == Some(*slot),
             Some(BuildExprRow::Field { name, .. }) => matches!(self.program.arena.expr_kind(id), ArenaExprKind::Field { name: source, .. } if source.as_str() == *name),
             Some(_) => false,
         };
-        if storage_selects_contract && let Some(contract) = self.storage_read_contract(id, slots) {
+        if storage_selects_contract && let Some(contract) = self.storage_read_contract(id, slots, checked) {
             let scratch = self.scratch.borrow();
             match (contract, scratch.expressions.get(lowered.index())?) {
-                (PhysicalReadContract::Stored(stored), BuildExprRow::Param(_) | BuildExprRow::Field { .. }) => return Some(LoweredContract::Storage(stored.clone())),
+                (PhysicalReadContract::Stored(stored), BuildExprRow::Param(_) | BuildExprRow::Field { .. }) => return Some(LoweredContract::Storage(stored)),
                 (_, BuildExprRow::CheckedValue { check, .. }) => return match check {
-                    LoweredValueCheck::Ground(check) => Some(LoweredContract::Checked(check.ty.clone())),
-                    LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type().map(LoweredContract::Checked),
+                    LoweredValueCheck::Ground(check) => Some(LoweredContract::Checked(std::borrow::Cow::Owned(check.ty.clone()))),
+                    LoweredValueCheck::Materialization(plan) => plan.destination.closed_ground_type().map(|ty| LoweredContract::Checked(std::borrow::Cow::Owned(ty))),
                     LoweredValueCheck::RecordConstructor(_) | LoweredValueCheck::MembershipKey(_) | LoweredValueCheck::MapKey(_) | LoweredValueCheck::FatalUIntKey => None,
                 },
                 _ => {}
             }
         }
-        self.bodies.expr_types.get(&id).cloned().map(LoweredContract::Checked)
+        checked.map(|ty| LoweredContract::Checked(std::borrow::Cow::Borrowed(ty)))
     }
 
     fn narrowed_optional_payload_check(&self, id: ExprId, slots: &SlotScope) -> Option<LoweredTypeCheck> {
         if !matches!(self.program.arena.expr_kind(id), ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
             || !matches!(self.stored_expression_type(id, slots)?, Type::Optional(_))
         { return None; }
-        let PhysicalReadContract::OptionalPayload(payload) = self.storage_read_contract(id, slots)? else { return None };
+        let PhysicalReadContract::OptionalPayload(payload) = self.storage_read_contract(id, slots, self.bodies.expr_types.get(&id))? else { return None };
         let ty = self.canonicalize_checked_type(payload.clone());
         Some(LoweredTypeCheck { name: Arc::from(ty.to_string()), ty, schema: None })
     }
@@ -8473,7 +8523,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if slots.guarded_postfixes.contains(&id) {
             return Some(lowered);
         }
-        let checked_uint_literal = self.bodies.expr_types.get(&id).is_some_and(|ty| {
+        let bodies: &'p CompactBodyFacts = self.bodies;
+        let checked = bodies.expr_types.get(&id);
+        let checked_uint_literal = checked.is_some_and(|ty| {
             ty == &Type::UInt
                 && matches!(
                     self.scratch.borrow().expressions.get(lowered.index()),
@@ -8482,15 +8534,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         });
         let checked_result_constructor = self.bodies.checked_control_flow.result_constructors
             .get(&self.program.arena.expr_span(id)).copied();
-        let Some(ty) = self.lowered_expression_contract(id, lowered, slots) else {
+        let Some(contract) = self.lowered_expression_contract_source(id, lowered, slots, checked) else {
             return Some(lowered);
         };
+        let ty = contract.ty();
         let capture_or_retry = matches!(
             self.program.arena.expr_kind(id),
             ArenaExprKind::Capture(_) | ArenaExprKind::Retry { .. }
         );
         if matches!(self.program.arena.expr_kind(id), ArenaExprKind::Retry { .. })
-            && let Type::Result(ok, error) = &ty
+            && let Type::Result(ok, error) = ty
             && **ok == Type::Unknown
             && compact_checked_type_is_concrete(error) && !error.contains_recovery()
         {
@@ -8507,15 +8560,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         {
             return None;
         }
-        let Some(ty) = Some(ty)
-            .filter(|ty| {
-                ty.contains_typed_callable() || matches!(ty, Type::Stream(_) | Type::Result(_, _) | Type::Optional(_)) && super::stream_return_item(ty).is_some() || matches!(self.program.arena.expr_kind(id), ArenaExprKind::TempDirScope { .. }) && matches!(ty.unvalidated(), Type::Result(_, _)) || checked_uint_literal
-                    || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
-            })
-        else {
+        let records_contract = ty.contains_typed_callable() || matches!(ty, Type::Stream(_) | Type::Result(_, _) | Type::Optional(_)) && super::stream_return_item(ty).is_some() || matches!(self.program.arena.expr_kind(id), ArenaExprKind::TempDirScope { .. }) && matches!(ty.unvalidated(), Type::Result(_, _)) || checked_uint_literal
+            || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any();
+        if !records_contract {
             return Some(lowered);
-        };
-        let ty = self.canonicalize_checked_type(ty);
+        }
+        let ty = self.canonicalize_checked_type(contract.into_type());
         let contract_producer = if let Some(selected) = checked_result_constructor {
             let scratch = self.scratch.borrow();
             let mut producer = lowered;
@@ -9988,16 +10038,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 }
 
 fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> bool {
-    if construct_is_main_at_args_call(program, id) {
-        return true;
-    }
     match program.arena.stmt_kind(id) {
         ArenaStmtKind::Export(inner)
         | ArenaStmtKind::Sugar {
             expansion: inner, ..
         } => construct_top_level_stmt_is_skippable(program, inner),
         ArenaStmtKind::Use(use_id) => construct_use_stmt_is_skippable(program, use_id),
-        ArenaStmtKind::Expr(expr) if construct_expr_is_reveal_type_call(program, expr) => true,
+        ArenaStmtKind::Expr(expr) if construct_is_main_at_args_expr(program, expr) || construct_expr_is_reveal_type_call(program, expr) => true,
         ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
@@ -10049,13 +10096,6 @@ fn construct_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> b
         return false;
     };
     matches!(program.arena.expr_kind(callee), ArenaExprKind::Ident(name) if name == "reveal_type")
-}
-
-fn construct_is_main_at_args_call(program: &ArenaProgram, id: StmtId) -> bool {
-    match program.arena.stmt_kind(id) {
-        ArenaStmtKind::Expr(expr) => construct_is_main_at_args_expr(program, expr),
-        _ => false,
-    }
 }
 
 fn construct_is_main_at_args_expr(program: &ArenaProgram, id: ExprId) -> bool {
@@ -11304,7 +11344,7 @@ pure explicitly_checked(value: Int) -> Result[UInt] { value.require(UInt) }
             function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scratch: std::rc::Rc::new(std::cell::RefCell::new(super::BuildScratch::default())),
             global_bindings: None,
-            module_exports: Default::default(),
+            pass_memo: Default::default(),
         };
         checked.parsed.arena.symbol_owner().with_current(|| {
             assert!(probe.lower_function_with_blocker(caller, crate::sema::types::CallableKind::Pure).is_err());

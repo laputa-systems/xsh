@@ -407,7 +407,7 @@ mod tests {
             function_defs: Rc::new(std::cell::RefCell::new(None)),
             scratch: Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
             global_bindings: None,
-            module_exports: Default::default(),
+            pass_memo: Default::default(),
         }
     }
 

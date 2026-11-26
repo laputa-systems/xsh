@@ -33,6 +33,10 @@ impl FactSlots {
 
 }
 
+fn span_order_key(span: Span) -> u128 {
+    ((span.source_id.raw() as u128) << 64) | ((span.start() as u128) << 32) | ((span.end() - span.start()) as u128)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TypeId(u32);
 
@@ -245,7 +249,7 @@ impl ExpressionTypes {
             if let Some(id) = self.values[index - self.first_slot] { pairs.push((self.slots.spans[index], id)); }
         }
         pairs.extend(self.other);
-        pairs.sort_unstable_by_key(|(span, _)| *span);
+        pairs.sort_unstable_by_key(|(span, _)| span_order_key(*span));
         let mut counts = vec![0usize; self.types.entries.len()];
         for &(_, id) in &pairs { counts[id.0 as usize] += 1; }
         let mut entries = self.types.entries;
@@ -409,6 +413,21 @@ mod tests {
         assert_eq!(facts.get(&span(1)), Some(&Type::Str));
         assert_eq!(facts.get(&span(2)), Some(&Type::Int));
         for finished in [span(4), span(5), span(6)] { assert_eq!(facts.get(&finished), Some(&Type::Bool)); }
+    }
+
+    #[test]
+    fn packed_span_keys_order_like_spans() {
+        let max = u32::MAX as usize;
+        let spans = [
+            Span::new(SourceId::new(0), 0, 0), Span::new(SourceId::new(0), 0, max), Span::new(SourceId::new(0), 1, 1),
+            Span::new(SourceId::new(0), max, max), Span::new(SourceId::new(1), 0, 0), Span::new(SourceId::new(1), 5, 9),
+            Span::new(SourceId::new(1), 5, 7), Span::new(SourceId::new(max), max - 1, max), Span::new(SourceId::new(max), max, max),
+        ];
+        for left in spans {
+            for right in spans {
+                assert_eq!(span_order_key(left).cmp(&span_order_key(right)), left.cmp(&right), "{left:?} {right:?}");
+            }
+        }
     }
 
     #[test]
