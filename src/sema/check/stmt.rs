@@ -121,6 +121,58 @@ struct FlowFacts<'a> {
     exhaustiveness: Option<ExhaustivenessFacts<'a>>,
     propagating_statements: Option<&'a BTreeSet<Span>>,
     propagating_conditions: Option<&'a BTreeSet<Span>>,
+    memo: Option<FlowMemoView<'a>>,
+}
+
+impl FlowFacts<'_> {
+    fn without_memo(&self) -> FlowFacts<'_> {
+        FlowFacts { memo: None, ..*self }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FlowMemoView<'a> {
+    entries: &'a FxHashMap<StmtId, (ControlFlow, u64)>,
+    after: u64,
+}
+
+impl FlowMemoView<'_> {
+    fn get(&self, id: StmtId) -> Option<ControlFlow> {
+        self.entries
+            .get(&id)
+            .filter(|(_, sequence)| *sequence > self.after)
+            .map(|(flow, _)| *flow)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct FlowMemo {
+    entries: FxHashMap<StmtId, (ControlFlow, u64)>,
+    retained: Vec<StmtId>,
+    open: Vec<(usize, u64)>,
+    sequence: u64,
+}
+
+impl FlowMemo {
+    pub(super) fn begin(&mut self) {
+        self.open.push((self.retained.len(), self.sequence));
+    }
+
+    fn finish(&mut self, id: StmtId, flow: ControlFlow) {
+        let Some((retained, _)) = self.open.pop() else { return };
+        for descendant in self.retained.drain(retained.min(self.retained.len())..) {
+            self.entries.remove(&descendant);
+        }
+        if !self.open.is_empty() {
+            self.sequence += 1;
+            self.entries.insert(id, (flow, self.sequence));
+            self.retained.push(id);
+        }
+    }
+
+    fn view(&self) -> Option<FlowMemoView<'_>> {
+        self.open.last().map(|&(_, after)| FlowMemoView { entries: &self.entries, after })
+    }
 }
 
 impl FlowFacts<'static> {
@@ -145,6 +197,7 @@ impl FlowFacts<'static> {
         exhaustiveness: None,
         propagating_statements: None,
         propagating_conditions: None,
+        memo: None,
     };
 }
 
@@ -275,6 +328,13 @@ fn deferred_action_may_propagate(
 }
 
 fn stmt_control_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) -> ControlFlow {
+    match facts.memo.and_then(|memo| memo.get(id)) {
+        Some(flow) => flow,
+        None => stmt_control_flow_walk(arena, id, facts),
+    }
+}
+
+fn stmt_control_flow_walk(arena: &ArenaProgram, id: StmtId, facts: &FlowFacts<'_>) -> ControlFlow {
     let mut flow = stmt_control_flow_inner(arena, id, facts);
     if flow.completes {
         let stmt = arena.arena.stmt(id);
@@ -1958,7 +2018,7 @@ fn expr_control_flow_inner(
             flow
         }
         ArenaExprKind::Capture(block) => {
-            handle_propagation(block_control_flow(arena, block, facts))
+            handle_propagation(block_control_flow(arena, block, &facts.without_memo()))
         }
         ArenaExprKind::Retry { .. } => {
             let mut flow = ControlFlow::NORMAL;
@@ -1966,7 +2026,7 @@ fn expr_control_flow_inner(
                 if flow.completes {
                     let child_flow = match child {
                         ArenaChild::Block(block) => {
-                            handle_propagation(block_control_flow(arena, block, facts))
+                            handle_propagation(block_control_flow(arena, block, &facts.without_memo()))
                         }
                         _ => child_control_flow(arena, child, facts),
                     };
@@ -2247,15 +2307,21 @@ impl Checker {
     }
 
     fn advance_stream_flow(&mut self, arena: &ArenaProgram, statement: StmtId) {
-        if !stmt_control_flow(arena, statement, &self.checked_flow_facts()).completes { self.boundary.stream_flow = super::stream_origins::StreamFlow::Dead; }
+        let flow = stmt_control_flow_walk(arena, statement, &self.memoized_flow_facts());
+        self.stream_origin_inputs.flow_memo.finish(statement, flow);
+        if !flow.completes { self.boundary.stream_flow = super::stream_origins::StreamFlow::Dead; }
     }
 
     pub(super) fn stream_block_may_complete(&self, arena: &ArenaProgram, block: BlockId) -> bool {
-        block_control_flow(arena, block, &self.checked_flow_facts()).completes
+        block_control_flow(arena, block, &self.memoized_flow_facts()).completes
     }
 
     pub(super) fn stream_expr_may_complete(&self, arena: &ArenaProgram, expression: ExprId) -> bool {
-        expr_control_flow(arena, expression, &self.checked_flow_facts()).completes
+        expr_control_flow(arena, expression, &self.memoized_flow_facts()).completes
+    }
+
+    fn memoized_flow_facts(&self) -> FlowFacts<'_> {
+        FlowFacts { memo: self.stream_origin_inputs.flow_memo.view(), ..self.checked_flow_facts() }
     }
 
     fn checked_flow_facts(&self) -> FlowFacts<'_> {
@@ -2282,6 +2348,7 @@ impl Checker {
             exhaustiveness: Some(self.exhaustiveness_facts()),
             propagating_statements: Some(&self.propagating_statements),
             propagating_conditions: Some(&self.propagating_conditions),
+            memo: None,
         }
     }
 
@@ -2290,7 +2357,7 @@ impl Checker {
         arena: &ArenaProgram,
         block_id: BlockId,
     ) -> bool {
-        !block_control_flow(arena, block_id, &self.checked_flow_facts()).completes
+        !block_control_flow(arena, block_id, &self.memoized_flow_facts()).completes
     }
 
     pub(super) fn publish_value_block_exit_arena(&mut self, arena: &ArenaProgram, expression: ExprId) {
@@ -3275,6 +3342,7 @@ impl Checker {
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         self.record_guarded_node(arena.arena.stmt_span(id));
+        self.stream_origin_inputs.flow_memo.begin();
         self.check_stmt_arena_inner(arena, source, id);
         self.advance_stream_flow(arena, id);
     }
@@ -7094,6 +7162,7 @@ impl Checker {
         purpose: TailCheckingPurpose,
     ) -> Type {
         self.record_guarded_node(arena.arena.stmt_span(id));
+        self.stream_origin_inputs.flow_memo.begin();
         let actual = self.check_tail_stmt_with_expectation_arena_inner(arena, source, id, expectation, purpose);
         if matches!(arena.arena.stmt_kind(id), ArenaStmtKind::If { .. } | ArenaStmtKind::Match { .. }) {
             if purpose == TailCheckingPurpose::ProcCompletion && self.inferred_returns.is_some() {
@@ -9318,4 +9387,134 @@ mod compound_assignment_inference_tests {
         }
     }
 
+}
+
+#[cfg(test)]
+mod flow_memo_tests {
+    use super::{
+        ArenaChild, Checker, ControlFlow, FlowFacts, FlowMemo, StmtId, StreamCardinalityCache,
+        stmt_control_flow_walk,
+    };
+    use crate::sema::check::stream_origins::StreamFlow;
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
+    use crate::source::SourceId;
+    use crate::syntax::arena::{ArenaProgram, SugarView};
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    const SOURCE: &str = "var n = 0
+if n > 1 {
+    return
+}
+for i in [1, 2] {
+    if i == 1 {
+        continue
+    }
+    let v = loop {
+        if i > 1 {
+            break i
+        }
+    }
+    n += v
+}
+while true {
+    if n > 5 {
+        break
+    }
+    n += 1
+}
+return
+for j in [3] {
+    let w = loop {
+        break j
+    }
+}
+";
+
+    fn child_statements(arena: &ArenaProgram, id: StmtId) -> Vec<StmtId> {
+        let mut children = Vec::new();
+        arena.arena.for_each_stmt_child(id, SugarView::Core, |child| match child {
+            ArenaChild::Stmt(stmt) => children.push(stmt),
+            ArenaChild::Block(block) => {
+                children.extend(arena.arena.stmt_ids(arena.arena.block(block).statements));
+            }
+            _ => {}
+        });
+        children
+    }
+
+    fn visit(
+        arena: &ArenaProgram,
+        id: StmtId,
+        memo: &mut FlowMemo,
+        memoized: &StreamCardinalityCache,
+        fresh: &StreamCardinalityCache,
+        checked: &mut usize,
+    ) -> ControlFlow {
+        memo.begin();
+        for child in child_statements(arena, id) {
+            visit(arena, child, memo, memoized, fresh, checked);
+        }
+        let flow = stmt_control_flow_walk(
+            arena,
+            id,
+            &FlowFacts { memo: memo.view(), cardinality_cache: Some(memoized), ..FlowFacts::AST_ONLY },
+        );
+        let walked = stmt_control_flow_walk(
+            arena,
+            id,
+            &FlowFacts { cardinality_cache: Some(fresh), ..FlowFacts::AST_ONLY },
+        );
+        assert_eq!(format!("{flow:?}"), format!("{walked:?}"), "{:?}", arena.arena.stmt_span(id));
+        *checked += 1;
+        memo.finish(id, flow);
+        flow
+    }
+
+    #[test]
+    fn nested_statements_reuse_finished_child_flows() {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), SOURCE);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let arena = &parsed.arena;
+        let (memoized, fresh) = (StreamCardinalityCache::default(), StreamCardinalityCache::default());
+        let mut memo = FlowMemo::default();
+        let mut checked = 0;
+        let flows = arena
+            .arena
+            .stmt_ids(arena.statements)
+            .map(|stmt| visit(arena, stmt, &mut memo, &memoized, &fresh, &mut checked))
+            .collect::<Vec<_>>();
+        assert!(checked > flows.len());
+        assert!(memo.entries.is_empty() && memo.retained.is_empty() && memo.open.is_empty());
+        let completing = flows.iter().map(|flow| flow.completes).collect::<Vec<_>>();
+        assert_eq!(completing, [true, true, true, true, false, true]);
+        assert!(
+            memoized.flow_visits.get() < fresh.flow_visits.get(),
+            "{} memoized expression visits against {} walked",
+            memoized.flow_visits.get(),
+            fresh.flow_visits.get()
+        );
+    }
+
+    #[test]
+    fn checker_stream_flow_matches_a_fresh_walk() {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), SOURCE);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        program.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(CheckOptions::default());
+            checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+            let mut ended = false;
+            for statement in statements {
+                checker.check_stmt_arena(program, SOURCE, statement);
+                let flow = stmt_control_flow_walk(program, statement, &checker.checked_flow_facts());
+                ended |= !flow.completes;
+                assert_eq!(checker.boundary.stream_flow == StreamFlow::Dead, ended);
+            }
+            assert!(ended);
+            let memo = &checker.stream_origin_inputs.flow_memo;
+            assert!(memo.entries.is_empty() && memo.retained.is_empty() && memo.open.is_empty());
+        });
+    }
 }
