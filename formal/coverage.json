@@ -16173,7 +16173,7 @@
         },
         {
           "path": "dev/verify/aeneas/extract.sh",
-          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+          "sha256": "d935147f4512aa498c9ecd0483387411238d9c230f5f56bda6280da5094b4790"
         },
         {
           "path": "dev/verify/aeneas/lean/.gitignore",
@@ -16217,7 +16217,11 @@
         },
         {
           "path": "dev/verify/aeneas/mutant.sh",
-          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+          "sha256": "16e79039691f47e57bc538076b2b0e0efb985490836ffe466d9fb11723df6671"
+        },
+        {
+          "path": "dev/verify/aeneas/mutate.py",
+          "sha256": "3c59274b37a2cf2665ab21e65436fe947986b44dd29863951647674b07294abb"
         },
         {
           "path": "dev/verify/aeneas/slice/Cargo.lock",
@@ -16417,7 +16421,7 @@
         },
         {
           "path": "dev/verify/aeneas/extract.sh",
-          "sha256": "81120fe12866e0a2c6c2df652881a373b59a3555178459dcf14dba23943998fa"
+          "sha256": "d935147f4512aa498c9ecd0483387411238d9c230f5f56bda6280da5094b4790"
         },
         {
           "path": "dev/verify/aeneas/lean/.gitignore",
@@ -16461,7 +16465,11 @@
         },
         {
           "path": "dev/verify/aeneas/mutant.sh",
-          "sha256": "731b03c9ca189832a9b71d4ab7212de00a2f2f47b7d9c30fc2c5f1f218afd39b"
+          "sha256": "16e79039691f47e57bc538076b2b0e0efb985490836ffe466d9fb11723df6671"
+        },
+        {
+          "path": "dev/verify/aeneas/mutate.py",
+          "sha256": "3c59274b37a2cf2665ab21e65436fe947986b44dd29863951647674b07294abb"
         },
         {
           "path": "dev/verify/aeneas/slice/Cargo.lock",
