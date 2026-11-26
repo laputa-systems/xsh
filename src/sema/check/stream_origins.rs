@@ -1160,6 +1160,22 @@ impl Checker {
         EffectDeclarationId { namespace: target.namespace, body: arena.arena.span(arena.arena.block(definition.body).span) }
     }
 
+    fn opaque_stream_value_overflows(ty: &Type) -> bool {
+        let mut successes = 0usize;
+        let mut current = ty;
+        loop {
+            match current {
+                Type::Result(ok, _) => {
+                    successes += 1;
+                    current = ok;
+                }
+                Type::Optional(value) => current = value,
+                Type::Validated(value) => current = value.base(),
+                value => return successes > crate::sema::constraints::MAX_TYPE_DEPTH && value.may_hold_resource(),
+            }
+        }
+    }
+
     fn opaque_stream_value(ty: &Type) -> Result<StreamOrigins, StreamOriginBoundaryError> {
         match ty {
             Type::Result(ok, _) => Self::opaque_stream_value(ok)?.prefix(StreamProjection::Success),
@@ -1592,7 +1608,11 @@ impl Checker {
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(..) | ArenaExprKind::Int(..) | ArenaExprKind::Float(..) | ArenaExprKind::Duration(..) | ArenaExprKind::Str(..) | ArenaExprKind::PathStr(..) | ArenaExprKind::GlobStr(..) | ArenaExprKind::FmtString(..) | ArenaExprKind::PathFmtString(..) | ArenaExprKind::Bytes(..) | ArenaExprKind::Regex(..) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. } | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. } | ArenaExprKind::Unary { .. } | ArenaExprKind::Binary { .. } | ArenaExprKind::ValuePipelineCall { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(..) | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } | ArenaExprKind::Run(..) | ArenaExprKind::Spawn(..) | ArenaExprKind::Wait(..) | ArenaExprKind::CodecSchema { .. } | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } | ArenaExprKind::ContextScope { .. } | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => None,
         };
-        let mut origin = origin.unwrap_or(Self::opaque_stream_value(ty)?);
+        let mut origin = match origin {
+            Some(_) if Self::opaque_stream_value_overflows(ty) => return Err(StreamOriginBoundaryError),
+            Some(origin) => origin,
+            None => Self::opaque_stream_value(ty)?,
+        };
         if matches!(ty.unvalidated(), Type::Stream(_)) && self.latent_stream_error_spans.contains(&span) { origin.join(&StreamOrigins::error()); }
         Ok(origin)
     }
@@ -2563,6 +2583,24 @@ pure blob_deep(stats: Stats) -> Stats {
         let (work, checked) = crate::sema::inference_work::collect(|| super::Checker::check_arena(&parsed.arena, source));
         assert!(checked.diagnostics.is_empty(), "{source}\n{:?}", checked.diagnostics);
         assert_eq!(work.function_body_check_entries, 1, "the closed first round is the fixpoint, so no second body check runs");
+    }
+
+    #[test]
+    fn opaque_fallback_overflow_matches_its_construction() {
+        use super::Type;
+        let owner = crate::symbol::SymbolOwner::new();
+        let record = Type::Record(std::sync::Arc::new(BTreeMap::from([(owner.intern("child"), Type::Int)])));
+        for payload in [Type::Int, Type::Str, record, Type::Stream(Box::new(Type::Int)), Type::Error] {
+            for depth in [0, 1, crate::sema::constraints::MAX_TYPE_DEPTH, crate::sema::constraints::MAX_TYPE_DEPTH + 1] {
+                for optional in [false, true] {
+                    let ty = (0..depth).fold(payload.clone(), |ty, level| {
+                        let inner = if optional && level % 2 == 0 { Type::Optional(Box::new(ty)) } else { ty };
+                        Type::Result(Box::new(inner), Box::new(Type::Error))
+                    });
+                    assert_eq!(super::Checker::opaque_stream_value_overflows(&ty), super::Checker::opaque_stream_value(&ty).is_err(), "{payload:?} at depth {depth}");
+                }
+            }
+        }
     }
 
     #[test]
