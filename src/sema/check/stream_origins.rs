@@ -204,16 +204,17 @@ pub(super) struct StreamOriginInputs {
     dependencies: std::sync::Arc<StreamOriginSummaries>,
     provisional: StreamOriginSummaries,
     transfers: std::sync::Arc<StreamOriginTransfers>,
+    pub(super) flow_memo: super::stmt::FlowMemo,
 }
 
 impl StreamOriginInputs {
     pub(super) fn new(dependencies: std::sync::Arc<StreamOriginSummaries>, provisional: StreamOriginSummaries) -> Self {
-        Self { dependencies, provisional, transfers: std::sync::Arc::default() }
+        Self { dependencies, provisional, transfers: std::sync::Arc::default(), flow_memo: Default::default() }
     }
 
     pub(super) fn for_probe(dependencies: std::sync::Arc<StreamOriginSummaries>, probe: StreamOriginProbe) -> Self {
         let transfers = StreamOriginTransfers { recording: probe.record_transfers, ..StreamOriginTransfers::default() };
-        Self { dependencies, provisional: probe.provisional, transfers: std::sync::Arc::new(transfers) }
+        Self { dependencies, provisional: probe.provisional, transfers: std::sync::Arc::new(transfers), flow_memo: Default::default() }
     }
 
     fn declaration(&self, owner: &EffectDeclarationId) -> Option<&StreamReturnSummary> {
