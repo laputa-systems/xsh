@@ -7527,14 +7527,14 @@ struct DecodedViews<'a> {
 
 enum ViewRef<'v, T> {
     Shared(&'v T),
-    Owned(T),
+    Owned(Box<T>),
 }
 
 impl<T: Clone> ViewRef<'_, T> {
     fn into_owned(self) -> T {
         match self {
             Self::Shared(view) => view.clone(),
-            Self::Owned(view) => view,
+            Self::Owned(view) => *view,
         }
     }
 }
@@ -7682,7 +7682,7 @@ impl<'a> FullDecoder<'a> {
             let view = self.decode_expression_view(instruction)?;
             return Ok(ViewRef::Shared(cell.get_or_init(|| view)));
         }
-        self.expression_view(instruction).map(ViewRef::Owned)
+        self.expression_view(instruction).map(|view| ViewRef::Owned(Box::new(view)))
     }
 
     fn statement_view_ref(
@@ -7696,7 +7696,7 @@ impl<'a> FullDecoder<'a> {
             let view = self.decode_statement_view(instruction)?;
             return Ok(ViewRef::Shared(cell.get_or_init(|| view)));
         }
-        self.statement_view(instruction).map(ViewRef::Owned)
+        self.statement_view(instruction).map(|view| ViewRef::Owned(Box::new(view)))
     }
 
     fn expression_view(
@@ -18305,7 +18305,7 @@ fn indexed_expr_can_complete_in(
     let child = |child_index: u32| {
         indexed_expr_can_complete_in(decoder, child_index as usize, depth + 1, IndexedCompletionContext::Value)
     };
-    let sequence = |children: Vec<u32>| -> Result<bool, IrVerifyError> {
+    let sequence = |children: SmallVec<[u32; 8]>| -> Result<bool, IrVerifyError> {
         for child_expr in children {
             if !child(child_expr)? {
                 return Ok(false);
@@ -18317,7 +18317,7 @@ fn indexed_expr_can_complete_in(
     if context == IndexedCompletionContext::PropagatedResult {
         match decoder.store.tags.get(instruction) {
             Some(FullTag::ExprErr) => {
-                let schema::ExprView::Err { .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::Err { .. } = &*decoder.expression_view_ref(instruction)? else { unreachable!() };
                 return Ok(false);
             }
             Some(FullTag::ExprMatch) => {
@@ -18339,7 +18339,7 @@ fn indexed_expr_can_complete_in(
     {
         return Ok(true);
     }
-    Ok(match view.into_owned() {
+    Ok(match &*view {
         schema::ExprView::Binary {
             op,
             left,
@@ -18350,22 +18350,23 @@ fn indexed_expr_can_complete_in(
                 false
             } else if matches!(op, BinaryOp::And | BinaryOp::Or) {
                 match indexed_condition_bool_literal(decoder.store, left.raw())? {
-                    Some(false) if op == BinaryOp::And => true,
-                    Some(true) if op == BinaryOp::Or => true,
+                    Some(false) if *op == BinaryOp::And => true,
+                    Some(true) if *op == BinaryOp::Or => true,
                     Some(_) => child(right.raw())?,
                     None => true,
                 }
-            } else if op == BinaryOp::ResultFallback {
+            } else if *op == BinaryOp::ResultFallback {
                 true
             } else {
                 child(right.raw())?
             }
         }
         schema::ExprView::IfExpr {
-            mut branches,
+            branches,
             else_value,
             ..
         } => {
+            let mut branches = branches.clone();
             let mut can_reach_next = true;
             let mut can_complete = false;
             for branch in &mut branches {
@@ -18398,14 +18399,14 @@ fn indexed_expr_can_complete_in(
         schema::ExprView::PatternIf { .. } => true,
         schema::ExprView::MatchExpr {
             value,
-            mut arms,
+            arms,
             ..
         } => {
             if !child(value.raw())? {
                 false
             } else {
                 let mut can_complete = false;
-                for arm in &mut arms {
+                for arm in &mut arms.clone() {
                     let (_, guard, value) = arm?;
                     let guard_can_complete = match guard {
                         Some(guard) => child(guard.raw())?,
@@ -18432,7 +18433,7 @@ fn indexed_expr_can_complete_in(
                 false
             } else {
                 let mut can_complete = false;
-                for arm in arms {
+                for arm in arms.clone() {
                     let (_, value) = arm?;
                     can_complete |= child(value.raw())?;
                 }
@@ -18459,7 +18460,7 @@ fn indexed_expr_can_complete_in(
                 block,
                 Some(decoder),
             )?;
-            if matches!(decoder.expression_view(instruction)?, schema::ExprView::Capture { .. }) {
+            if matches!(&*view, schema::ExprView::Capture { .. }) {
                 !body_cannot_complete || indexed_block_may_propagate(decoder, block)?
             } else {
                 !body_cannot_complete
@@ -18479,19 +18480,20 @@ fn indexed_expr_can_complete_in(
             end,
             ..
         } => {
-            let mut children = vec![base.raw()];
+            let mut children = SmallVec::<[u32; 8]>::new();
+            children.push(base.raw());
             children.extend(start.map(|value| value.raw()));
             children.extend(end.map(|value| value.raw()));
             sequence(children)?
         }
         schema::ExprView::Method {
-            receiver, mut args, ..
+            receiver, args, ..
         } => {
             if !child(receiver.raw())? {
                 false
             } else {
                 let mut can_complete = true;
-                for arg in &mut args {
+                for arg in &mut args.clone() {
                     if !child(arg?.raw())? {
                         can_complete = false;
                         break;
@@ -18500,12 +18502,12 @@ fn indexed_expr_can_complete_in(
                 can_complete
             }
         }
-        schema::ExprView::Call { mut args, .. }
-        | schema::ExprView::DirectPureCall { mut args, .. }
-        | schema::ExprView::ExternalCall { mut args, .. }
-        | schema::ExprView::SelfCall { mut args, .. } => {
+        schema::ExprView::Call { args, .. }
+        | schema::ExprView::DirectPureCall { args, .. }
+        | schema::ExprView::ExternalCall { args, .. }
+        | schema::ExprView::SelfCall { args, .. } => {
             let mut can_complete = true;
-            for arg in &mut args {
+            for arg in &mut args.clone() {
                 match arg? {
                     decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => {
                         if !child(value.raw())? {
@@ -18520,19 +18522,19 @@ fn indexed_expr_can_complete_in(
         }
         schema::ExprView::TypedCall {
             callee,
-            mut args,
+            args,
             ..
         }
         | schema::ExprView::DynamicCall {
             callee,
-            mut args,
+            args,
             ..
         } => {
             if !child(callee.raw())? {
                 false
             } else {
                 let mut can_complete = true;
-                for arg in &mut args {
+                for arg in &mut args.clone() {
                     match arg? {
                         decode::CallArgView::Single(value) | decode::CallArgView::Splice(value) => {
                             if !child(value.raw())? {
@@ -18546,25 +18548,25 @@ fn indexed_expr_can_complete_in(
                 can_complete
             }
         }
-        schema::ExprView::List(mut values)
-        | schema::ExprView::Tag { fields: mut values, .. } => {
-            let mut children = Vec::new();
-            for value in &mut values {
+        schema::ExprView::List(values)
+        | schema::ExprView::Tag { fields: values, .. } => {
+            let mut children = SmallVec::<[u32; 8]>::new();
+            for value in &mut values.clone() {
                 children.push(value?.raw());
             }
             sequence(children)?
         }
-        schema::ExprView::ListBuild(mut values) => {
-            let mut children = Vec::new();
-            for value in &mut values {
+        schema::ExprView::ListBuild(values) => {
+            let mut children = SmallVec::<[u32; 8]>::new();
+            for value in &mut values.clone() {
                 let (_, value, _) = value?;
                 children.push(value.raw());
             }
             sequence(children)?
         }
-        schema::ExprView::MapLiteral(mut entries) => {
-            let mut children = Vec::new();
-            for entry in &mut entries {
+        schema::ExprView::MapLiteral(entries) => {
+            let mut children = SmallVec::<[u32; 8]>::new();
+            for entry in &mut entries.clone() {
                 let (key, value, _) = entry?;
                 children.extend(key.map(|value| value.raw()));
                 children.push(value.raw());
@@ -18573,28 +18575,28 @@ fn indexed_expr_can_complete_in(
         }
         schema::ExprView::ListComp {
             value,
-            mut qualifiers,
+            qualifiers,
             ..
         } => indexed_comprehension_can_complete(
             decoder,
             value.raw(),
-            &mut qualifiers,
+            &mut qualifiers.clone(),
             None,
         )?,
         schema::ExprView::MapComp {
             key,
             value,
-            mut qualifiers,
+            qualifiers,
             ..
         } => indexed_comprehension_can_complete(
             decoder,
             key.raw(),
-            &mut qualifiers,
+            &mut qualifiers.clone(),
             Some(value.raw()),
         )?,
-        schema::ExprView::Record(mut entries) => {
-            let mut children = Vec::new();
-            for entry in &mut entries {
+        schema::ExprView::Record(entries) => {
+            let mut children = SmallVec::<[u32; 8]>::new();
+            for entry in &mut entries.clone() {
                 match entry? {
                     decode::RecordEntryView::Field(_, value)
                     | decode::RecordEntryView::Spread(value) => children.push(value.raw()),
@@ -18605,10 +18607,10 @@ fn indexed_expr_can_complete_in(
         schema::ExprView::RecordUpdate { base, .. } => child(base.raw())?,
         schema::ExprView::ListPipeline {
             input,
-            mut stages,
+            stages,
             ..
         } => {
-            indexed_pipeline_can_complete(decoder, input.raw(), &mut stages)?
+            indexed_pipeline_can_complete(decoder, input.raw(), &mut stages.clone())?
         }
         schema::ExprView::Abort { .. } => false,
         _ => true,

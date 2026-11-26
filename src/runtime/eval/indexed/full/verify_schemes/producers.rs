@@ -1801,21 +1801,21 @@ fn has_condition_inputs(tag: FullTag) -> bool {
 
 fn record_condition_inputs(decoder: &FullDecoder<'_>, instruction: usize, output: &mut Vec<(usize, ConditionRole)>, mut charge: impl FnMut(usize) -> Result<(), IrVerifyError>) -> Result<(), IrVerifyError> {
     match decoder.store.tags[instruction].kind() {
-        schema::InstructionKind::Stmt => match decoder.statement_view(instruction)? {
-            schema::StmtView::If { branches, .. } => for branch in branches { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
-            schema::StmtView::IfBool { branches, .. } => for branch in branches { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
-            schema::StmtView::PatternIf { branches, .. } => for branch in branches { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
+        schema::InstructionKind::Stmt => match &*decoder.statement_view_ref(instruction)? {
+            schema::StmtView::If { branches, .. } => for branch in branches.clone() { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
+            schema::StmtView::IfBool { branches, .. } => for branch in branches.clone() { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
+            schema::StmtView::PatternIf { branches, .. } => for branch in branches.clone() { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
             schema::StmtView::While { condition, .. } | schema::StmtView::PatternWhile { condition, .. } => output.push((condition.raw() as usize, ConditionRole::Control)),
             schema::StmtView::WhileBool { condition, .. } => output.push((condition.raw() as usize, ConditionRole::Control)),
             schema::StmtView::Assert { value, .. } => output.push((value.raw() as usize, ConditionRole::Boolean)),
-            schema::StmtView::Match { arms, .. } => for arm in arms { charge(1)?; if let Some(guard) = arm?.1 { output.push((guard.raw() as usize, ConditionRole::Boolean)); } },
+            schema::StmtView::Match { arms, .. } => for arm in arms.clone() { charge(1)?; if let Some(guard) = arm?.1 { output.push((guard.raw() as usize, ConditionRole::Boolean)); } },
             _ => {}
         },
-        schema::InstructionKind::Expr => match decoder.expression_view(instruction)? {
-            schema::ExprView::IfExpr { branches, .. } => for branch in branches { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
-            schema::ExprView::PatternIf { branches, .. } => for branch in branches { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
-            schema::ExprView::MatchExpr { arms, .. } => for arm in arms { charge(1)?; if let Some(guard) = arm?.1 { output.push((guard.raw() as usize, ConditionRole::Boolean)); } },
-            schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => for qualifier in qualifiers {
+        schema::InstructionKind::Expr => match &*decoder.expression_view_ref(instruction)? {
+            schema::ExprView::IfExpr { branches, .. } => for branch in branches.clone() { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
+            schema::ExprView::PatternIf { branches, .. } => for branch in branches.clone() { charge(1)?; output.push((branch?.0.raw() as usize, ConditionRole::Control)); },
+            schema::ExprView::MatchExpr { arms, .. } => for arm in arms.clone() { charge(1)?; if let Some(guard) = arm?.1 { output.push((guard.raw() as usize, ConditionRole::Boolean)); } },
+            schema::ExprView::ListComp { qualifiers, .. } | schema::ExprView::MapComp { qualifiers, .. } => for qualifier in qualifiers.clone() {
                 charge(1)?;
                 if let super::super::decode::CompQualifierView::If { condition, .. } = qualifier? { output.push((condition.raw() as usize, ConditionRole::Control)); }
             },

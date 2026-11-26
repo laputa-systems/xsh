@@ -209,12 +209,12 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
         }
         match tag {
             FullTag::ExprCodecSchema => {
-                let schema::ExprView::CodecSchema { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::CodecSchema { op, .. } = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 let signature = FullDecoder::codec_schema_signature(op)?;
                 require(instruction, Some(signature.effects), signature.pure, &mut captured)?;
             }
             FullTag::ExprModuleCall => {
-                let schema::ExprView::ModuleCall { op, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::ModuleCall { op, .. } = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 if let Some(bridge) = crate::stdlib::bridge_contract(op) {
                     let effects = bridge.sig.effects.concrete()
                         .map_err(|_| IrVerifyError::new("bridge effect contract is unresolved"))?;
@@ -226,7 +226,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 } }
             }
             FullTag::ExprMethod => {
-                let schema::ExprView::Method { name, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::Method { name, .. } = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 match crate::modules::signature::native_method_effect_rule(name) {
                     Some(NativeEffectRule::Uniform { effects, pure }) => require(instruction, Some(effects), pure, &mut captured)?,
                     Some(NativeEffectRule::OperandDependent) => {}
@@ -235,7 +235,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
             }
             FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall | FullTag::ExprDynamicCall
                 if tag != FullTag::ExprDynamicCall || decoder.store.scheme_callable_calls.binary_search_by_key(&(instruction as u32), |call| call.instruction).is_ok() => {
-                let target = match decoder.expression_view(instruction)? {
+                let target = match &*decoder.expression_view_ref(instruction)? {
                     schema::ExprView::Call { function, .. } | schema::ExprView::DirectPureCall { function, .. } => function.id.index(),
                     schema::ExprView::SelfCall { .. } => index,
                     schema::ExprView::DynamicCall { .. } => {
@@ -264,7 +264,7 @@ pub(super) fn verify_owner(decoder: &FullDecoder<'_>, index: usize, scopes: &Ver
                 }
             }
             FullTag::ExprTypedCall => {
-                let schema::ExprView::TypedCall { signature, kind, .. } = decoder.expression_view(instruction)? else { unreachable!() };
+                let schema::ExprView::TypedCall { signature, kind, .. } = *decoder.expression_view_ref(instruction)? else { unreachable!() };
                 let signature = decoder.store.semantic.typed_callable_signature(signature.id)?;
                 let effects = decoder.store.semantic.signature_effects(signature)?;
                 let pure = kind == CallableKind::Pure;
