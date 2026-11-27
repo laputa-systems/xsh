@@ -1027,8 +1027,10 @@ mod tests {
         );
         assert_eq!(
             Name::RESULT.symbol().raw() as usize,
-            CORE_BUILTIN_SYMBOLS.len() - 1
+            30
         );
+        assert_eq!(Name::intern("SqliteDb").symbol().raw() as usize, 31);
+        assert_eq!(CORE_BUILTIN_SYMBOLS.len(), 32);
     }
 
     #[test]
