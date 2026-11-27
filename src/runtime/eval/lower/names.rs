@@ -90,6 +90,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     // The shared arena can contain one physical namespace under several module-root contexts.
     // Resolve import aliases only among modules reachable from this lowering root.
     pub(super) fn compact_imported_module_owner(&self, alias: Name) -> Option<Name> {
+        let key = (self.current_namespace, alias);
+        if let Some(&owner) = self.pass_memo.borrow().imported_module_owners.get(&key) {
+            return owner;
+        }
+        let owner = self.find_imported_module_owner(alias);
+        self.pass_memo.borrow_mut().imported_module_owners.insert(key, owner);
+        owner
+    }
+
+    fn find_imported_module_owner(&self, alias: Name) -> Option<Name> {
         let module_owner = |use_id| {
             let use_stmt = self.program.arena.use_stmt(use_id);
             let imported_as = use_stmt

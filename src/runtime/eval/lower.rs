@@ -1652,6 +1652,7 @@ struct CompactLowerConstructProbe<'a, 'defs> {
 #[derive(Default)]
 struct LoweringPassMemo {
     module_exports: FxHashMap<String, Option<Vec<LoweredModuleExport>>>,
+    imported_module_owners: FxHashMap<(Option<Name>, Name), Option<Name>>,
     module_top_level_known: FxHashMap<Name, FxHashMap<Name, LoweredTopLevelBinding>>,
     script_arguments: Option<Type>,
 }
