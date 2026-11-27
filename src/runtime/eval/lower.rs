@@ -6099,7 +6099,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             span,
                         };
                         push_build_row!(self, expr, BuildExprRow::ProcessCommandArgv(Box::new(command)))
-                    } else if let (Some(receiver), Some(crate::modules::MethodReceiver::Path | crate::modules::MethodReceiver::FsRoot)) = (receiver, plan.receiver)
+                    } else if let (Some(receiver), Some(crate::modules::MethodReceiver::Path | crate::modules::MethodReceiver::FsRoot | crate::modules::MethodReceiver::SqliteDb)) = (receiver, plan.receiver)
                         && !plan.signature.pure
                         && plan.signature.effects.contains(&crate::syntax::node::Effect::Fs)
                     {
@@ -6108,7 +6108,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         if !super::Evaluator::lowered_module_op_executable(plan.signature.op)
                             || !matches!((plan.receiver, receiver_type.closed_ground_type().as_ref().map(Type::unvalidated)),
                                 (Some(crate::modules::MethodReceiver::Path), Some(Type::Path))
-                                | (Some(crate::modules::MethodReceiver::FsRoot), Some(Type::FsRoot)))
+                                | (Some(crate::modules::MethodReceiver::FsRoot), Some(Type::FsRoot))
+                                | (Some(crate::modules::MethodReceiver::SqliteDb), Some(Type::SqliteDb)))
                             || !matches!(self.program.arena.expr_kind(callee), ArenaExprKind::Field { name: selected, .. } | ArenaExprKind::NullSafeField { name: selected, .. } if selected.as_str().as_str() == plan.name.as_ref())
                             || !crate::sema::builtin_templates::verify_registered_call(&plan, Some(receiver_type), &arguments, &ty, &|name| self.declarations.wire_enums.mappings.contains_key(&name))
                         { return self.block_scheme_lowering_expr(expression); }

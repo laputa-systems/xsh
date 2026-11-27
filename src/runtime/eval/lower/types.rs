@@ -338,8 +338,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::ProcessHandle => name == "cancel" && arg_count <= 2,
-        Type::FsRoot => api_spec()
-            .method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())
+        Type::FsRoot | Type::SqliteDb => api_spec()
+            .method_overloads(if *ty == Type::FsRoot { crate::modules::MethodReceiver::FsRoot } else { crate::modules::MethodReceiver::SqliteDb }, &name.as_str())
             .is_some_and(|methods| {
                 methods.iter().any(|method| {
                     arg_count <= method.sig.params.len()

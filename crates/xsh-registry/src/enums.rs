@@ -34,8 +34,28 @@ pub const ARCHIVE_MODES: &str = "archive.Modes";
 pub const ARCHIVE_OWNERSHIP: &str = "archive.Ownership";
 pub const ARCHIVE_ENTRY_KIND: &str = "archive.EntryKind";
 pub const SSH_CERTAINTY: &str = "ssh.Certainty";
+pub const SQLITE_OPEN_MODE: &str = "sqlite.OpenMode";
+pub const SQLITE_TRANSACTION_MODE: &str = "sqlite.TransactionMode";
 
 static BUILTIN_ENUMS: &[BuiltinEnum] = &[
+    BuiltinEnum {
+        name: SQLITE_OPEN_MODE,
+        summary: "How a file database is opened.",
+        variants: &[
+            variant("ReadOnly", "Open an existing database read-only."),
+            variant("ReadWrite", "Open an existing database for reading and writing."),
+            variant("Create", "Open for reading and writing, creating the database if needed."),
+        ],
+    },
+    BuiltinEnum {
+        name: SQLITE_TRANSACTION_MODE,
+        summary: "When a transaction acquires its locks.",
+        variants: &[
+            variant("Deferred", "Acquire locks when needed."),
+            variant("Immediate", "Acquire the write transaction immediately."),
+            variant("Exclusive", "Begin an exclusive write transaction."),
+        ],
+    },
     BuiltinEnum {
         name: ARCHIVE_FORMAT,
         summary: "The container format of an archive.",

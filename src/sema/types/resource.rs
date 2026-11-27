@@ -9,7 +9,7 @@ impl Type {
         let mut current = self;
         loop {
             match current {
-                Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::Stream(_) => {
+                Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::SqliteDb | Self::Stream(_) => {
                     return true;
                 }
                 Self::List(item) | Self::Set(item) | Self::Optional(item) => {

@@ -148,6 +148,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::FsRoot
         | Type::FsLock
         | Type::SshSession
+        | Type::SqliteDb
         | Type::RelPath
         | Type::Unit => {}
     }
@@ -338,6 +339,7 @@ mod tests {
             | Type::FsRoot
             | Type::FsLock
             | Type::SshSession
+            | Type::SqliteDb
             | Type::RelPath
             | Type::Unit => {}
         }

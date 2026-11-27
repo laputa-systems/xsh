@@ -2205,7 +2205,7 @@ impl Checker {
         }
         if matches!(
             expected,
-            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock | Type::SshSession)
+            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock | Type::SshSession | Type::SqliteDb)
         ) {
             for field in fields {
                 match &field.kind {
@@ -2234,6 +2234,9 @@ impl Checker {
             if matches!(expected, Some(Type::FsLock)) {
                 self.error(span, "`FsLock` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `fs.lock`", DiagnosticCode::CheckTypeMismatch);
                 return Type::Unknown;
+            }
+            if matches!(expected, Some(Type::SqliteDb)) {
+                self.error(span, "`SqliteDb` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `sqlite.open` or `sqlite.memory`", DiagnosticCode::CheckTypeMismatch);
             }
             if matches!(expected, Some(Type::SshSession)) {
                 self.error(span, "`SshSession` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `ssh.connect`", DiagnosticCode::CheckTypeMismatch);

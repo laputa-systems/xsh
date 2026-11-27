@@ -1472,7 +1472,7 @@ impl Evaluator {
             .map(str::to_string);
         let rooted = trace_name
             .as_deref()
-            .is_some_and(|name| name.starts_with("FsRoot."));
+            .is_some_and(|name| name.starts_with("FsRoot.") || name.starts_with("SqliteDb."));
         self.trace_enter(
             if rooted {
                 TraceKind::MethodCall

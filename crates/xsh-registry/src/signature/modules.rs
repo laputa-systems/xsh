@@ -190,6 +190,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: utils_module(),
             },
             ModuleEntry { name: "yaml", sig: text_codec_module([RuntimeOp::YamlDecode, RuntimeOp::YamlEncode, RuntimeOp::YamlRead, RuntimeOp::YamlWrite]) },
+            ModuleEntry {
+                name: "sqlite",
+                sig: sqlite_module(),
+            },
         ],
         value_methods(),
     )
@@ -1217,6 +1221,36 @@ fn net_module() -> ModuleSig {
                 RuntimeOp::NetCloseAllPools,
             ),
         ),
+    ])
+}
+
+pub(in crate::signature) fn sqlite_result(ok: Type) -> Type {
+    Type::Result(Box::new(ok), Box::new(Type::ErrorFamily("SqliteError")))
+}
+
+pub(in crate::signature) fn sqlite_cell(input: bool) -> Type {
+    let mut members = vec![Type::Int, Type::Float, Type::Str, Type::Bytes];
+    if input { members.push(Type::Bool); }
+    Type::Optional(Box::new(Type::Union(members)))
+}
+
+pub(in crate::signature) fn sqlite_table() -> Type {
+    Type::Record(BTreeMap::from([
+        ("columns".to_owned(), Type::List(Box::new(Type::Str))),
+        ("rows".to_owned(), Type::List(Box::new(Type::List(Box::new(sqlite_cell(false)))))),
+    ]))
+}
+
+fn sqlite_module() -> ModuleSig {
+    module_sig(vec![
+        ("open", sig(vec![
+            param("path", Type::Path),
+            default_param("mode", Type::Enum(crate::enums::SQLITE_OPEN_MODE)),
+            default_param("busy_timeout", Type::Duration),
+        ], sqlite_result(Type::SqliteDb), false, RuntimeOp::SqliteOpen)),
+        ("memory", sig(vec![
+            default_param("busy_timeout", Type::Duration),
+        ], sqlite_result(Type::SqliteDb), false, RuntimeOp::SqliteMemory)),
     ])
 }
 

@@ -176,6 +176,7 @@ pub(super) enum TypeTag {
     FsLock,
     SchemeCallable,
     SshSession,
+    SqliteDb,
 }
 
 impl TypeTag {
@@ -206,6 +207,7 @@ impl TypeTag {
                 | Self::FsRoot
                 | Self::FsLock
                 | Self::SshSession
+                | Self::SqliteDb
                 | Self::Unit
         )
     }
@@ -941,6 +943,7 @@ impl SemanticPools {
             TypeTag::FsRoot => Type::FsRoot,
             TypeTag::FsLock => Type::FsLock,
             TypeTag::SshSession => Type::SshSession,
+            TypeTag::SqliteDb => Type::SqliteDb,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => {
@@ -1082,6 +1085,7 @@ impl SemanticPools {
             TypeTag::FsRoot => Some("FsRoot"),
             TypeTag::FsLock => Some("FsLock"),
             TypeTag::SshSession => Some("SshSession"),
+            TypeTag::SqliteDb => Some("SqliteDb"),
             TypeTag::Unit => Some("Unit"),
             _ => None,
         };
@@ -1717,6 +1721,7 @@ impl SemanticPoolBuilder {
             Type::FsRoot => scalar(TypeTag::FsRoot),
             Type::FsLock => scalar(TypeTag::FsLock),
             Type::SshSession => scalar(TypeTag::SshSession),
+            Type::SqliteDb => scalar(TypeTag::SqliteDb),
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,

@@ -123,6 +123,13 @@ resource_table! {
         scope_release: ResourceScopeRelease::CloseRoot,
         with_release: Some(RuntimeOp::SshCloseIfOpen),
     }),
+    SqliteDb => (Type::SqliteDb, ResourceRule {
+        kind: ResourceKind::Capability,
+        consuming: &[ResourceConsumption::Operation(RuntimeOp::SqliteClose)],
+        repeat: ResourceRepeat::Error,
+        scope_release: ResourceScopeRelease::CloseRoot,
+        with_release: Some(RuntimeOp::SqliteCloseIfOpen),
+    }),
 }
 
 impl ManagedResource {
@@ -169,7 +176,8 @@ mod tests {
             [
                 ManagedResource::FsRoot,
                 ManagedResource::FsLock,
-                ManagedResource::SshSession
+                ManagedResource::SshSession,
+                ManagedResource::SqliteDb
             ]
         );
         assert_eq!(ManagedResource::for_with_type(&Type::FsLock), Some(ManagedResource::FsLock));

@@ -68,7 +68,7 @@ impl Evaluator {
                         None => lowered_result_err_value(
                             RuntimeError::new("fs-root", "root handle is not active").with_span(span),
                         ),
-                        Some(super::super::FsCapability::Lock(_)) => unreachable!("FsRoot identity names a root"),
+                        Some(super::super::FsCapability::Lock(_) | super::super::FsCapability::Sqlite(_)) => unreachable!("FsRoot identity names a root"),
                     }
                 }
                 Some(_) => lowered_result_err_value(
@@ -611,7 +611,7 @@ impl Evaluator {
             };
             let file = match self.take_fs_capability(index) {
                 Some(super::super::FsCapability::Lock(file)) => file,
-                Some(super::super::FsCapability::Root(_)) => unreachable!("FsLock identity names a lock"),
+                Some(super::super::FsCapability::Root(_) | super::super::FsCapability::Sqlite(_)) => unreachable!("FsLock identity names a lock"),
                 None => {
                 if op == RuntimeOp::FsUnlockIfHeld {
                     return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)));

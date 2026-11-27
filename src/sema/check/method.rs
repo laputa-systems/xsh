@@ -457,6 +457,21 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
+        if base_ty == Type::SqliteDb {
+            return self.check_registered_method_arena(
+                arena,
+                source,
+                call_source.clone(),
+                MethodReceiver::SqliteDb,
+                name,
+                args,
+                span,
+                &base_ty,
+                DiagnosticCode::CheckUnknownMethod,
+                expected,
+                self.schema_expectation_for_expr(arena, base),
+            );
+        }
         if base_ty == Type::FsRoot {
             return self.check_registered_method_arena(
                 arena,

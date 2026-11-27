@@ -6313,6 +6313,7 @@ fn runtime_complete_check_type(
         | Type::FsRoot
         | Type::FsLock
         | Type::SshSession
+        | Type::SqliteDb
         | Type::Unit
         => true,
         Type::Optional(_) if source == Some(&Type::Null) => true,

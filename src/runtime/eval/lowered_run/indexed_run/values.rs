@@ -311,7 +311,7 @@ impl Evaluator {
         let (domain, name, signature) = crate::modules::api_spec().registered_method(method)
             .ok_or_else(|| RuntimeError::new("invalid-method", "verified method identity is not registered").with_span(span))?;
         if !signature.sig.pure
-            && matches!(domain, crate::modules::MethodReceiver::Path | crate::modules::MethodReceiver::RelPath | crate::modules::MethodReceiver::FsRoot)
+            && matches!(domain, crate::modules::MethodReceiver::Path | crate::modules::MethodReceiver::RelPath | crate::modules::MethodReceiver::FsRoot | crate::modules::MethodReceiver::SqliteDb)
         {
             if values.len() > signature.sig.params.len()
                 || signature.sig.params[values.len()..].iter().any(|parameter| !parameter.defaulted)

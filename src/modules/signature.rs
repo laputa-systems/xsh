@@ -113,13 +113,16 @@ impl ApiSpec {
             }
         }
         for receiver in &methods {
-            if receiver.receiver == MethodReceiver::FsRoot {
-                for method in &receiver.methods {
-                    for overload in &method.overloads {
-                        op_names
-                            .entry(overload.sig.op)
-                            .or_insert_with(|| format!("FsRoot.{}", method.name));
-                    }
+            let receiver_name = match receiver.receiver {
+                MethodReceiver::FsRoot => "FsRoot",
+                MethodReceiver::SqliteDb => "SqliteDb",
+                _ => continue,
+            };
+            for method in &receiver.methods {
+                for overload in &method.overloads {
+                    op_names
+                        .entry(overload.sig.op)
+                        .or_insert_with(|| format!("{receiver_name}.{}", method.name));
                 }
             }
         }
@@ -512,6 +515,7 @@ pub(crate) fn method_receiver_for_type(ty: &Type) -> Option<MethodReceiver> {
         Type::ProcessHandle => MethodReceiver::ProcessHandle,
         Type::NetJob => MethodReceiver::NetJob,
         Type::FsRoot => MethodReceiver::FsRoot,
+        Type::SqliteDb => MethodReceiver::SqliteDb,
         Type::Digest => MethodReceiver::Digest,
         Type::Regex => MethodReceiver::Regex,
         _ => return None,
@@ -657,7 +661,7 @@ fn native_operation_index(op: RuntimeOp) -> Option<&'static NativeOperationContr
             }
         }
         for (receiver, methods) in api_spec().method_entries() {
-            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot | MethodReceiver::EnvPathList) { continue; }
+            if !matches!(receiver, MethodReceiver::PathConstructor | MethodReceiver::Path | MethodReceiver::FsRoot | MethodReceiver::SqliteDb | MethodReceiver::EnvPathList) { continue; }
             for method in methods {
                 for overload in &method.overloads {
                     let signature = &overload.sig;
@@ -1009,6 +1013,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::FsRoot => Type::FsRoot,
         xsh_registry::types::Type::FsLock => Type::FsLock,
         xsh_registry::types::Type::SshSession => Type::SshSession,
+        xsh_registry::types::Type::SqliteDb => Type::SqliteDb,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Union(members) => {
@@ -1033,7 +1038,7 @@ fn method_required_effects(receiver: MethodReceiver, pure: bool) -> &'static [Ef
         MethodReceiver::EnvPathList => &[Effect::Env],
         MethodReceiver::ProcessHandle => &[Effect::Process],
         MethodReceiver::NetJob => &[Effect::Net],
-        MethodReceiver::FsRoot => &[Effect::Fs],
+        MethodReceiver::FsRoot | MethodReceiver::SqliteDb => &[Effect::Fs],
         _ => &[],
     }
 }
@@ -1247,6 +1252,7 @@ mod tests {
                                 super::MethodReceiver::ProcessHandle => super::Type::ProcessHandle,
                                 super::MethodReceiver::NetJob => super::Type::NetJob,
                                 super::MethodReceiver::FsRoot => super::Type::FsRoot,
+                                super::MethodReceiver::SqliteDb => super::Type::SqliteDb,
                                 other => panic!("{label}: no probe receiver for {other:?}"),
                             });
                     let required = overload

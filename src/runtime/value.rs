@@ -807,6 +807,7 @@ pub enum Value {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     SshSession(SshSessionValue),
+    SqliteDb(SqliteDbValue),
     Unit,
     Tag {
         type_name: Name,
@@ -1019,6 +1020,19 @@ impl PartialEq for FsRootValue {
     }
 }
 impl Eq for FsRootValue {}
+
+#[derive(Clone, Debug)]
+pub struct SqliteDbValue {
+    pub(crate) id: i64,
+    pub(crate) owner: Arc<()>,
+}
+
+impl PartialEq for SqliteDbValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for SqliteDbValue {}
 
 /// Lock identity is evaluator-local. Metadata can be read without exposing
 /// the live table index or allowing records to forge a release capability.

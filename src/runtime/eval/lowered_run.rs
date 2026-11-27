@@ -74,6 +74,7 @@ mod module_loading;
 mod module_net;
 mod module_process;
 mod module_ssh;
+mod module_sqlite;
 #[cfg(feature = "native-tests")]
 mod module_test;
 mod module_unix;
@@ -3449,7 +3450,7 @@ fn lowered_fs_root_dir<'a>(
     slot.as_ref()
         .and_then(|owned| match &owned.value {
             super::FsCapability::Root(root) => Some(root.root()),
-            super::FsCapability::Lock(_) => None,
+            super::FsCapability::Lock(_) | super::FsCapability::Sqlite(_) => None,
         })
         .ok_or_else(|| RuntimeError::new("fs-root", "root handle is not active").with_span(span))
 }
@@ -6346,6 +6347,8 @@ impl Evaluator {
             callable; RuntimeOp::SshInfo if values.len() == 1 => return self.eval_lowered_ssh_info_values(values, span),
             callable; RuntimeOp::SshCertainty if values.len() == 1 => return self.eval_lowered_ssh_certainty_values(values, span),
             callable; RuntimeOp::SshClose | RuntimeOp::SshCloseIfOpen if values.len() == 1 => return self.eval_lowered_ssh_close_values(op, values, span),
+            callable; RuntimeOp::SqliteOpen | RuntimeOp::SqliteMemory => return self.eval_lowered_sqlite_open(op, values, span),
+            callable; RuntimeOp::SqliteExecute | RuntimeOp::SqliteQuery | RuntimeOp::SqliteBegin | RuntimeOp::SqliteCommit | RuntimeOp::SqliteRollback | RuntimeOp::SqliteInTransaction | RuntimeOp::SqliteClose | RuntimeOp::SqliteCloseIfOpen => return self.eval_lowered_sqlite_call(op, values, span),
             callable; RuntimeOp::NetRequest if values.len() == 1 => return self.eval_lowered_net_request_values(values, span),
             callable; RuntimeOp::NetRequestMany if values.len() == 1 => return self.eval_lowered_net_request_many_values(values, span),
             callable; RuntimeOp::NetDownloadMany if values.len() == 1 => return self.eval_lowered_net_download_many_values(values, span),

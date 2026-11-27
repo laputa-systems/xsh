@@ -46,6 +46,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::ProcessHandle => "ProcessHandle",
         MethodReceiver::NetJob => "NetJob",
         MethodReceiver::FsRoot => "FsRoot",
+        MethodReceiver::SqliteDb => "SqliteDb",
         MethodReceiver::NonEmpty => "NonEmpty",
         MethodReceiver::RelPath => "RelPath",
         MethodReceiver::Set => "Set",
@@ -171,6 +172,10 @@ fn module_docs(module: &str) -> ApiDocs {
         "net" => (
             "HTTP request, transfer, and connection-pool helpers.",
             "Network failures remain typed error data.",
+        ),
+        "sqlite" => (
+            "Embedded SQLite databases and transactions.",
+            "Connections are evaluator-owned resources. See the SQLite section of the language reference for values, limits, transactions and errors.",
         ),
         "ssh" => (
             "Native SSH connections and remote command execution.",
@@ -461,6 +466,16 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Verifies a detached RFC 8032 Ed25519 signature. Small-order public keys are accepted, as in OpenSSH; callers taking untrusted keys must check them.",
             "Uses the PureEd25519 variant and passes message bytes unchanged, without text decoding or prehashing. public_key must be 32 bytes and signature must be 64 bytes. A valid signature returns Ok(true); a well-sized invalid signature returns Ok(false). Malformed lengths, invalid public-key encodings, and provider failures return Err with kinds crypto-ed25519-public-key-length, crypto-ed25519-signature-length, crypto-ed25519-public-key, and crypto-ed25519-provider respectively. Missing CPU features return crypto-ed25519-hardware, naming the feature. Small-order public keys are accepted, as in OpenSSH; callers taking untrusted keys must check them. The operation has no host effects.",
             &["crypto", "ed25519", "verification", "signature"],
+        )),
+        ("sqlite", "open") => Some((
+            "Opens a file database in the current working-directory scope.",
+            "mode defaults to .Create; .ReadWrite requires an existing database and .ReadOnly cannot write or create. busy_timeout defaults to 5s and accepts zero through 2147483647ms. Paths retain native bytes and are not SQLite URIs. Foreign keys are enabled. The owning scope closes the connection and rolls back unfinished work.",
+            &["sqlite", "database", "resource"],
+        )),
+        ("sqlite", "memory") => Some((
+            "Opens a private in-memory database.",
+            "busy_timeout defaults to 5s and accepts zero through 2147483647ms. The owning scope closes the connection and rolls back unfinished work.",
+            &["sqlite", "database", "resource"],
         )),
         ("ssh", "connect") => Some((
             "Connects, verifies the host key, and authenticates one SSH user.",
@@ -2026,6 +2041,41 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
     let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
         receiver, method,
     ) {
+        ("SqliteDb", "execute") => Some((
+            "Executes one statement without result columns.",
+            "params defaults to an empty list. Values bind to ? and ?NNN; named placeholders and incorrect counts fail. SQLite counts through the highest parameter index, including gaps. NULL, Int, finite Float, Str, Bytes and Bool are accepted; Bool binds as 0 or 1. Result columns are rejected before stepping. The result is SQLite's latest INSERT, UPDATE or DELETE change count; other statements leave it unchanged.",
+            &["sqlite", "sql", "binding"],
+        )),
+        ("SqliteDb", "query") => Some((
+            "Executes one statement with result columns and materializes its rows.",
+            "The result is {columns: List[Str], rows: List[List[SqlCell]]}, including duplicate column names and metadata for zero rows. Rows follow SQLite order. INTEGER, REAL, TEXT, BLOB and NULL become Int, Float, Str, Bytes and null. Invalid UTF-8 and non-finite REAL fail. Results are limited to one million cells and 16 MiB of text, blob and column-name bytes. Parameter rules are the same as execute.",
+            &["sqlite", "sql", "query"],
+        )),
+        ("SqliteDb", "begin") => Some((
+            "Begins a transaction.",
+            "mode defaults to .Deferred; .Immediate and .Exclusive acquire write locks earlier. Nested begin fails. A statement failure does not necessarily end the transaction.",
+            &["sqlite", "transaction"],
+        )),
+        ("SqliteDb", "commit") => Some((
+            "Commits the active transaction.",
+            "A failed commit can leave the transaction active; check in_transaction or roll back.",
+            &["sqlite", "transaction"],
+        )),
+        ("SqliteDb", "rollback") => Some((
+            "Rolls back the active transaction.",
+            "Closing a connection with unfinished work also rolls it back.",
+            &["sqlite", "transaction"],
+        )),
+        ("SqliteDb", "in_transaction") => Some((
+            "Reports SQLite's actual transaction state.",
+            "The result is true while SQLite autocommit is off.",
+            &["sqlite", "transaction"],
+        )),
+        ("SqliteDb", "close") => Some((
+            "Closes the database and rolls back unfinished work.",
+            "Close can fail. A failed close retains the live connection. Closing an alias closes all aliases. with cleanup accepts a connection already closed explicitly.",
+            &["sqlite", "resource", "cleanup"],
+        )),
         ("Path", "resolve") => Some((
             "Resolves a path through the filesystem.",
             "Use resolve only when symlink-aware canonical host resolution is required; it may fail for missing paths.",

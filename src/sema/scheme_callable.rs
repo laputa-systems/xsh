@@ -265,7 +265,7 @@ impl SchemeCallableRebaser {
                 | Type::DynamicModule | Type::Status | Type::EnvPathList | Type::Error | Type::ErrorFamily(_)
                 | Type::ErrorVariant { .. } | Type::ErrorFacet(_) | Type::ProcessError | Type::Function(_)
                 | Type::Command | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock
-                | Type::SshSession | Type::Unit | Type::Tag(_))
+                | Type::SshSession | Type::SqliteDb | Type::Unit | Type::Tag(_))
             { return; }
             match self.ty_at_depth(ty, source, depth + 1) {
                 Ok(mapped) => *ty = mapped,

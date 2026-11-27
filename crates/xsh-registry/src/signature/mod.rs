@@ -629,6 +629,7 @@ pub enum MethodReceiver {
     /// other method of the value is a `Path` method.
     RelPath,
     Set,
+    SqliteDb,
 }
 
 #[derive(Clone, Debug)]

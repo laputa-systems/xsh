@@ -48,7 +48,7 @@ impl Effect {
     /// require both process and network permission.
     pub fn from_module_call(module: &str, function: &str) -> &'static [Self] {
         match module {
-            "fs" | "archive" | "compression" | "fat" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
+            "fs" | "sqlite" | "archive" | "compression" | "fat" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
                 &[Self::Fs]
             }
             "bytes" => match function {

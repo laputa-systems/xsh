@@ -4444,6 +4444,7 @@ enum ValueClass {
     Tag(Name),
     FsLock,
     SshSession,
+    SqliteDb,
 }
 
 /// `None` means any value may fit: `Any`, rigid type parameters, and types
@@ -4497,6 +4498,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         Type::FsRoot => ValueClass::FsRoot,
         Type::FsLock => ValueClass::FsLock,
         Type::SshSession => ValueClass::SshSession,
+        Type::SqliteDb => ValueClass::SqliteDb,
         Type::EnvPathList => ValueClass::EnvPathList,
         Type::Module(_) | Type::DynamicModule => ValueClass::Module,
         Type::Tag(name) => ValueClass::Tag(*name),

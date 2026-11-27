@@ -596,6 +596,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::FsRoot(_) => return Err("FsRoot"),
         Value::FsLock(_) => return Err("FsLock"),
         Value::SshSession(_) => return Err("SshSession"),
+        Value::SqliteDb(_) => return Err("SqliteDb"),
         Value::Unit => return Err("Unit"),
     })
 }

@@ -562,7 +562,7 @@ image_unit_enums! {
         Any, Null, Bool, Int, Float, Duration, Str, Bytes, Digest, Regex, Path, List, Map, Stream, Record, Module, Result, Status,
         EnvPathList, Error, ErrorFamily, ErrorVariant, ErrorFacet, ProcessError, Function, Command, ProcessHandle, NetJob, FsRoot,
         Unit, Tag, Optional, UInt, ErasedRecord, DynamicModule, ExactModule, Union, Callable, Validated, Nominal, Set, Bounded,
-        FsLock, SchemeCallable, SshSession,
+        FsLock, SchemeCallable, SshSession, SqliteDb,
     }
     crate::runtime::eval::indexed::full::schema::FullSchemeTypeTag {
         Ground, SchemeCallable, Parameter, Callable, List, Map, Stream, Set, Result, Optional, Record, Union, Validated,
@@ -582,7 +582,7 @@ image_unit_enums! {
     crate::sema::wrapper_operation::WrapperSelection { Optional, Result, Capture, KeyValidation, ProcCompletion }
     crate::syntax::arena::UnknownFields { Preserve, Reject, Strip }
     xsh_registry::types::BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
-    crate::modules::MethodReceiver { PathConstructor, Result, EnvPathList, Path, Int, Float, List, Map, Record, Stream, Str, Bytes, Status, Digest, Regex, ProcessHandle, NetJob, FsRoot, NonEmpty, RelPath, Set }
+    crate::modules::MethodReceiver { PathConstructor, Result, EnvPathList, Path, Int, Float, List, Map, Record, Stream, Str, Bytes, Status, Digest, Regex, ProcessHandle, NetJob, FsRoot, NonEmpty, RelPath, Set, SqliteDb }
     CheckedPatternVariantKind { Tag, Error }
     Effect { Fs, Net, Process, Env, Time, Error, Io }
     AssignOp { Set, Add, Sub, Mul, Div, Rem }
@@ -630,7 +630,8 @@ fn registered_runtime_ops() -> &'static FxHashMap<u16, RuntimeOp> {
             .flat_map(|function| function.overloads.iter().map(|overload| overload.op));
         let methods = spec.method_entries().flat_map(|(_, methods)| methods.iter())
             .flat_map(|method| method.overloads.iter().map(|overload| overload.sig.op));
-        functions.chain(methods).map(|op| (op as u16, op)).collect()
+        let releases = xsh_registry::ManagedResource::ALL.into_iter().filter_map(|resource| resource.release_op());
+        functions.chain(methods).chain(releases).map(|op| (op as u16, op)).collect()
     })
 }
 
@@ -1394,7 +1395,7 @@ image_type! {
     ErrorVariant { family, variant } = 29, ErrorFacet(name) = 30, ProcessError = 31,
     Function(kind) = 32, Command = 33, ProcessHandle = 34, NetJob = 35, FsRoot = 36, FsLock = 37,
     SshSession = 38, Unit = 39, Tag(name) = 40, Optional(item) = 41, Union(members) = 42,
-    Callable(callable) = 43, SchemeCallable(id) = 44, Validated(validated) = 45,
+    Callable(callable) = 43, SchemeCallable(id) = 44, Validated(validated) = 45, SqliteDb = 46,
 }
 
 #[test]

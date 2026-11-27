@@ -15,6 +15,7 @@ use crate::enums::{
 use crate::types::BuiltinTypeParameter;
 use super::modules::{
     archive_enum, archive_result, archive_source_type, process_command_environment_type,
+    sqlite_cell, sqlite_result, sqlite_table,
 };
 
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
@@ -1499,6 +1500,18 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
             ]),
         },
+        MethodReceiverSig {
+            receiver: MethodReceiver::SqliteDb,
+            methods: method_map(vec![
+                method("execute", vec![param("sql", Type::Str), default_param("params", Type::List(Box::new(sqlite_cell(true))))], sqlite_result(Type::Int), false, RuntimeOp::SqliteExecute),
+                method("query", vec![param("sql", Type::Str), default_param("params", Type::List(Box::new(sqlite_cell(true))))], sqlite_result(sqlite_table()), false, RuntimeOp::SqliteQuery),
+                method("begin", vec![default_param("mode", Type::Enum(crate::enums::SQLITE_TRANSACTION_MODE))], sqlite_result(Type::Unit), false, RuntimeOp::SqliteBegin),
+                method("commit", Vec::new(), sqlite_result(Type::Unit), false, RuntimeOp::SqliteCommit),
+                method("rollback", Vec::new(), sqlite_result(Type::Unit), false, RuntimeOp::SqliteRollback),
+                method("in_transaction", Vec::new(), sqlite_result(Type::Bool), false, RuntimeOp::SqliteInTransaction),
+                method("close", Vec::new(), sqlite_result(Type::Unit), false, RuntimeOp::SqliteClose),
+            ]),
+        },
     ];
     for receiver in &mut receivers {
         for method in &mut receiver.methods {
@@ -1546,6 +1559,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReceiver::ProcessHandle => Some(Type::ProcessHandle),
                     MethodReceiver::NetJob => Some(Type::NetJob),
                     MethodReceiver::FsRoot => Some(Type::FsRoot),
+                    MethodReceiver::SqliteDb => Some(Type::SqliteDb),
                 };
             }
         }

@@ -18,7 +18,7 @@ use crate::runtime::signal::{
 };
 use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
-    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue, SshSessionValue,
+    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue, SshSessionValue, SqliteDbValue,
     CallableValue, EnvPathListSnapshot, FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
@@ -1804,6 +1804,7 @@ enum LoweredType {
     FsRoot,
     FsLock,
     SshSession,
+    SqliteDb,
     Stream,
     Function(CallableKind),
     SchemeCallable,
@@ -2338,6 +2339,7 @@ enum LoweredValue {
     FsRoot(FsRootValue),
     FsLock(Box<FsLockValue>),
     SshSession(SshSessionValue),
+    SqliteDb(SqliteDbValue),
     Stream(Box<StreamValue>),
     Callable(CallableValue),
     Error(Box<Value>),
@@ -2710,6 +2712,7 @@ impl PartialEq for LoweredValue {
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
             (Self::NetJob(left), Self::NetJob(right)) => left == right,
             (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
+            (Self::SqliteDb(left), Self::SqliteDb(right)) => left == right,
             (Self::FsLock(left), Self::FsLock(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Callable(left), Self::Callable(right)) => left == right,
@@ -3013,6 +3016,7 @@ impl LoweredValue {
             Self::FsRoot(value) => Value::FsRoot(value),
             Self::FsLock(value) => Value::FsLock(value),
             Self::SshSession(value) => Value::SshSession(value),
+            Self::SqliteDb(value) => Value::SqliteDb(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Callable(value) => Value::Callable(value),
             Self::Error(value) => *value,
@@ -3710,7 +3714,7 @@ impl OwnedHostCounts {
 struct OwnedFsCapability { owner_scope: u64, value: FsCapability }
 
 // Root payloads are larger than files; keep released capability slots compact.
-enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File) }
+enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File), Sqlite(crate::modules::sqlite::Database) }
 
 #[derive(Clone)]
 enum OwnedHostResource { Process(u64), Net(u64), Capability(usize), Ssh(u64) }
@@ -7426,6 +7430,9 @@ impl Evaluator {
             LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                 self.collect_capability(handle.id, worklist);
             }
+            LoweredValue::SqliteDb(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.collect_capability(handle.id, worklist);
+            }
             LoweredValue::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                 self.collect_capability(handle.id, worklist);
             }
@@ -7472,6 +7479,9 @@ impl Evaluator {
                     worklist.resources.push(OwnedHostResource::Net(handle.id));
                 }
                 Value::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.collect_capability(handle.id, worklist);
+                }
+                Value::SqliteDb(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     self.collect_capability(handle.id, worklist);
                 }
                 Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {

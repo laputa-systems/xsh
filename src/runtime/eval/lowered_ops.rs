@@ -1051,6 +1051,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::FsRoot, LoweredValue::FsRoot(_))
             | (LoweredType::FsLock, LoweredValue::FsLock(_))
             | (LoweredType::SshSession, LoweredValue::SshSession(_))
+            | (LoweredType::SqliteDb, LoweredValue::SqliteDb(_))
             | (LoweredType::Stream, LoweredValue::Stream(_))
             | (LoweredType::Error, LoweredValue::Error(_))
             | (LoweredType::Record, LoweredValue::Record(_))
@@ -1090,6 +1091,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::FsRoot => "FsRoot",
         LoweredType::FsLock => "FsLock",
         LoweredType::SshSession => "SshSession",
+        LoweredType::SqliteDb => "SqliteDb",
         LoweredType::Stream => "Stream",
         LoweredType::Function(kind) => kind.value_type_name(),
         LoweredType::SchemeCallable => "callable",
@@ -1140,6 +1142,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::FsRoot, Value::FsRoot(value)) => Some(LoweredValue::FsRoot(value.clone())),
         (LoweredType::FsLock, Value::FsLock(value)) => Some(LoweredValue::FsLock(value.clone())),
         (LoweredType::SshSession, Value::SshSession(value)) => Some(LoweredValue::SshSession(*value)),
+        (LoweredType::SqliteDb, Value::SqliteDb(value)) => Some(LoweredValue::SqliteDb(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Function(kind), Value::Callable(value)) if kind == value.kind() => Some(LoweredValue::Callable(value.clone())),
         (LoweredType::SchemeCallable, Value::Callable(value)) if value.instance().is_some_and(|instance| matches!(instance.state, super::PreparedCallableState::SchemeValue(_))) => Some(LoweredValue::Callable(value.clone())),
@@ -1194,6 +1197,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::FsRoot(value) => Some(LoweredValue::FsRoot(value.clone())),
         Value::FsLock(value) => Some(LoweredValue::FsLock(value.clone())),
         Value::SshSession(value) => Some(LoweredValue::SshSession(*value)),
+        Value::SqliteDb(value) => Some(LoweredValue::SqliteDb(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Callable(value) => Some(LoweredValue::Callable(value.clone())),
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
@@ -1369,7 +1373,7 @@ pub(crate) fn registered_method_receiver_executes(domain: crate::modules::Method
         domain,
         Domain::Str | Domain::Bytes | Domain::Int | Domain::Float | Domain::Path | Domain::RelPath | Domain::Digest
             | Domain::Regex | Domain::Status | Domain::List | Domain::NonEmpty | Domain::Map | Domain::Set
-            | Domain::Result | Domain::Record | Domain::Stream | Domain::FsRoot
+            | Domain::Result | Domain::Record | Domain::Stream | Domain::FsRoot | Domain::SqliteDb
     )
 }
 

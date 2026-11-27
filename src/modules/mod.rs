@@ -24,6 +24,7 @@ pub(crate) mod random;
 pub(crate) mod regex;
 pub(crate) mod shlex;
 pub(crate) mod ssh;
+pub(crate) mod sqlite;
 pub mod signature;
 pub(crate) mod system;
 pub(crate) mod text;

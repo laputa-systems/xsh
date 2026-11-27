@@ -464,7 +464,7 @@ pub(crate) fn registered_call_is_executable(plan: &super::schemes::RegisteredCal
     if slots.len() != plan.argument_slots.len()
         || slots.iter().any(|slot| *slot >= signature.params.len())
         || signature.params.iter().enumerate().any(|(slot, parameter)| !parameter.defaulted && !slots.contains(&slot))
-        || plan.receiver.is_some_and(|receiver| receiver != MethodReceiver::FsRoot) && slots.iter().copied().ne(0..slots.len())
+        || plan.receiver.is_some_and(|receiver| !matches!(receiver, MethodReceiver::FsRoot | MethodReceiver::SqliteDb)) && slots.iter().copied().ne(0..slots.len())
     { return false; }
     match plan.receiver {
         Some(domain) => crate::runtime::eval::registered_method_receiver_executes(domain)
@@ -855,7 +855,7 @@ mod tests {
                 }
             }
         }
-        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set, MethodReceiver::FsRoot, MethodReceiver::Result, MethodReceiver::Stream];
+        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set, MethodReceiver::FsRoot, MethodReceiver::SqliteDb, MethodReceiver::Result, MethodReceiver::Stream];
         assert_eq!(domains.len(), expected.len());
         assert!(expected.iter().all(|domain| domains.contains(domain)));
     }

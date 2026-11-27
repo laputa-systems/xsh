@@ -126,6 +126,7 @@ pub enum Type {
     FsRoot,
     FsLock,
     SshSession,
+    SqliteDb,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -823,7 +824,7 @@ impl Type {
             | Self::Str | Self::Bytes | Self::Digest | Self::Regex | Self::Path | Self::ErasedRecord
             | Self::DynamicModule | Self::Status | Self::EnvPathList | Self::Error | Self::ErrorFamily(_)
             | Self::ErrorVariant { .. } | Self::ErrorFacet(_) | Self::ProcessError | Self::Function(_) | Self::SchemeCallable(_)
-            | Self::Command | Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::Unit | Self::Tag(_) => {}
+            | Self::Command | Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::SshSession | Self::SqliteDb | Self::Unit | Self::Tag(_) => {}
         }
     }
 
@@ -1078,6 +1079,7 @@ impl Type {
             BuiltinTypeName::FsRoot => Self::FsRoot,
             BuiltinTypeName::FsLock => Self::FsLock,
             BuiltinTypeName::SshSession => Self::SshSession,
+            BuiltinTypeName::SqliteDb => Self::SqliteDb,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
             BuiltinTypeName::RelPath => Self::rel_path(),
@@ -1115,6 +1117,7 @@ impl Type {
             Self::FsRoot => Some(BuiltinTypeName::FsRoot),
             Self::FsLock => Some(BuiltinTypeName::FsLock),
             Self::SshSession => Some(BuiltinTypeName::SshSession),
+            Self::SqliteDb => Some(BuiltinTypeName::SqliteDb),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::BuiltinParameter(_)
@@ -1787,6 +1790,7 @@ impl Type {
             Self::FsRoot => Some("FsRoot".to_string()),
             Self::FsLock => Some("FsLock".to_string()),
             Self::SshSession => Some("SshSession".to_string()),
+            Self::SqliteDb => Some("SqliteDb".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
             Self::Union(members) => Some(format!(
@@ -1886,6 +1890,7 @@ impl fmt::Display for Type {
             Self::FsRoot => write!(f, "FsRoot"),
             Self::FsLock => write!(f, "FsLock"),
             Self::SshSession => write!(f, "SshSession"),
+            Self::SqliteDb => write!(f, "SqliteDb"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => {
                 let identity = name.as_str();

@@ -60,6 +60,7 @@ builtin_type_names!(
     (SshSession, "SshSession"),
     (RelPath, "RelPath"),
     (Result, "Result"),
+    (SqliteDb, "SqliteDb"),
 );
 
 /// Fixed relationships used only by builtin signature templates.
@@ -122,6 +123,7 @@ pub enum Type {
     FsRoot,
     FsLock,
     SshSession,
+    SqliteDb,
     Unit,
     Optional(Box<Type>),
     /// A closed union of member types, in the order a dynamic value is

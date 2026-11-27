@@ -373,6 +373,7 @@ impl Analyzer<'_> {
             Type::FsRoot => ManagedResource::FsRoot,
             Type::FsLock => ManagedResource::FsLock,
             Type::SshSession => ManagedResource::SshSession,
+            Type::SqliteDb => ManagedResource::SqliteDb,
             _ => return None,
         };
         if resource == ManagedResource::Stream {

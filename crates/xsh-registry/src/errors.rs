@@ -158,6 +158,7 @@ pub fn builtin_error_families() -> Vec<ErrorFamily> {
         codec_error_family(),
         archive_error_family(),
         ssh_error_family(),
+        sqlite_error_family(),
     ]
 }
 
@@ -437,6 +438,31 @@ pub fn ssh_error_family() -> ErrorFamily {
         variants: SSH_ERROR_VARIANTS,
     }
 }
+
+pub fn sqlite_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "SqliteError",
+        fields: vec![
+            ErrorField { name: "message", ty: Type::Str },
+            ErrorField { name: "operation", ty: Type::Str },
+            ErrorField { name: "code", ty: Type::Optional(Box::new(Type::Int)) },
+            ErrorField { name: "extended_code", ty: Type::Optional(Box::new(Type::Int)) },
+        ],
+        variants: SQLITE_ERROR_VARIANTS,
+    }
+}
+
+pub const SQLITE_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant { name: "InvalidArgument", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Closed", facets: &[] },
+    ErrorVariant { name: "Busy", facets: &[] },
+    ErrorVariant { name: "Constraint", facets: &[] },
+    ErrorVariant { name: "Open", facets: &[ErrorFacet::HostIo] },
+    ErrorVariant { name: "InvalidData", facets: &[ErrorFacet::InvalidData] },
+    ErrorVariant { name: "Canceled", facets: &[ErrorFacet::Canceled] },
+    ErrorVariant { name: "Limit", facets: &[ErrorFacet::CaptureLimit] },
+    ErrorVariant { name: "Engine", facets: &[ErrorFacet::HostIo] },
+];
 
 pub const SSH_ERROR_VARIANTS: &[ErrorVariant] = &[
     ErrorVariant { name: "Options", facets: &[ErrorFacet::InvalidData] },

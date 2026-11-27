@@ -883,9 +883,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } = self.program.arena.expr_kind(callee)
             && self.checked_expr_type(base)
                 .or_else(|| self.concrete_checked_type(base)).is_some_and(|ty| {
-                ty == Type::FsRoot
-                    || matches!(ty, Type::Result(ref inner, _) if **inner == Type::FsRoot)
-                    || matches!(ty, Type::Optional(ref inner) if **inner == Type::FsRoot && slots.postfix_receivers.contains_key(&base))
+                matches!(ty, Type::FsRoot | Type::SqliteDb)
+                    || matches!(ty, Type::Result(ref inner, _) if matches!(**inner, Type::FsRoot | Type::SqliteDb))
+                    || matches!(ty, Type::Optional(ref inner) if matches!(**inner, Type::FsRoot | Type::SqliteDb) && slots.postfix_receivers.contains_key(&base))
             })
         {
             let plan = self.bodies.api_calls.get(&id).filter(|plan| plan.receiver.is_some())?;
