@@ -119,6 +119,9 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
             collect_type_symbols(ok, output);
             collect_type_symbols(err, output);
         }
+        Type::SqliteDb => {
+            output.insert("SqliteDb".to_string());
+        }
         Type::BuiltinParameter(_)
         | Type::Any
         | Type::Unknown
@@ -148,7 +151,6 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::FsRoot
         | Type::FsLock
         | Type::SshSession
-        | Type::SqliteDb
         | Type::RelPath
         | Type::Unit => {}
     }
