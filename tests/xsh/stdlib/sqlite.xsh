@@ -291,3 +291,10 @@ body_fails(foreign()?)
 """, status: 3, stderr: ["body failed first", "cleanup error", "database handle is closed or belongs to another evaluator"])?
   assert failed.stdout == ""
 }
+
+test test_sqlite_database_cannot_be_built_from_a_record { |ctx|
+  let forged = test.run_script(ctx, "proc probe() [fs, error] { let db: SqliteDb = {id: 1}\n  let _ = db.query(\"SELECT 1\") }\n")?
+  assert ! forged.success
+  assert "`SqliteDb` is an opaque runtime capability" in forged.stderr
+  assert forged.stderr.split("err[").len() == 2, forged.stderr
+}

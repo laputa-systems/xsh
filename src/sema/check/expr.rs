@@ -2237,6 +2237,7 @@ impl Checker {
             }
             if matches!(expected, Some(Type::SqliteDb)) {
                 self.error(span, "`SqliteDb` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `sqlite.open` or `sqlite.memory`", DiagnosticCode::CheckTypeMismatch);
+                return Type::Unknown;
             }
             if matches!(expected, Some(Type::SshSession)) {
                 self.error(span, "`SshSession` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `ssh.connect`", DiagnosticCode::CheckTypeMismatch);
