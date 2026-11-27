@@ -2265,7 +2265,7 @@ fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>
         Type::ErrorFamily(family) | Type::ErrorVariant { family, .. }
             if families.contains(family) =>
         {
-            *family = Name::intern(format!("{namespace}.{family}"));
+            *family = Name::dotted(namespace, *family);
         }
         Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             qualify_error_type(inner, namespace, families)
@@ -2434,17 +2434,17 @@ impl Checker {
             self.type_namespaces.insert(alias, resolved_types);
             for (name, info) in tag_variants {
                 self.tag_variants
-                    .insert(Name::intern(format!("{alias}.{name}")), info);
+                    .insert(Name::dotted(alias, name), info);
             }
             for (name, family) in error_families {
-                let qualified = Name::intern(format!("{alias}.{name}"));
+                let qualified = Name::dotted(alias, name);
                 for variant in family.variants.values() {
                     for facet in &variant.facets {
                         self.error_facets
-                            .insert(Name::intern(format!("{alias}.{facet}")));
+                            .insert(Name::dotted(alias, *facet));
                     }
                 }
-                let identity = Name::intern(format!("{declaring_namespace}.{name}"));
+                let identity = Name::dotted(declaring_namespace, name);
                 self.error_family_identities.insert(qualified, identity);
                 self.error_families.insert(identity, family.clone());
                 self.error_families.insert(qualified, family);

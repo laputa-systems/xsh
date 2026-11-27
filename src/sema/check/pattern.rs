@@ -925,7 +925,7 @@ impl Checker {
                 variant,
                 fields,
             } => {
-                let qualified = Name::intern(format!("{family}.{variant}"));
+                let qualified = Name::dotted(*family, *variant);
                 if fields.len == 0
                     && let Some(info) = self.tag_variants.get(&qualified).cloned()
                 {

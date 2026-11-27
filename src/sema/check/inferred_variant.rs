@@ -65,7 +65,7 @@ impl Checker {
         };
         let Some(info) = self
             .tag_variants
-            .get(&Name::intern(format!("{namespace}.{name}")))
+            .get(&Name::dotted(namespace, name))
         else {
             return;
         };

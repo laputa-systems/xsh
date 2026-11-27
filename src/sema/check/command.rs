@@ -105,7 +105,7 @@ impl Checker {
     }
 
     pub(super) fn field_type_for_value(&mut self, base_ty: Type, name: &str, span: Span) -> Type {
-        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+        if matches!(base_ty, Type::Union(_)) && self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
         }
         match base_ty {

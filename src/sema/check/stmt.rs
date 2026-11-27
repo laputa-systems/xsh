@@ -2534,7 +2534,7 @@ pub(super) fn collect_variant_coverage(
             if fields.len == 0
                 && facts
                     .tag_variants
-                    .contains_key(&Name::intern(format!("{family}.{variant}")))
+                    .contains_key(&Name::dotted(family, variant))
             {
                 coverage.constructors.insert(variant);
             } else if arena

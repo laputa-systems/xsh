@@ -3936,7 +3936,7 @@ impl Checker {
             return Type::EnvPathList;
         }
         if let ArenaExprKind::Ident(namespace) = base_expr.kind {
-            let qualified = Name::intern(format!("{namespace}.{name}"));
+            let qualified = Name::dotted(namespace, name);
             if let Some(info) = self.tag_variants.get(&qualified).cloned()
                 && info.field_count == 0
             {
@@ -3986,7 +3986,7 @@ impl Checker {
         } else {
             base_ty
         };
-        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+        if matches!(base_ty, Type::Union(_)) && self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
         }
         if matches!(base_ty, Type::Inference(_)) {
@@ -4217,7 +4217,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
-        if self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
+        if matches!(base_ty, Type::Union(_)) && self.reject_unnarrowed_union(&base_ty, &format!("reading `.{name}`"), span) {
             return Type::Unknown;
         }
         if base_ty.contains_inference() {

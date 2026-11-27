@@ -583,7 +583,7 @@ impl Checker {
             } = base_kind
                 && let ArenaExprKind::Ident(namespace) = arena.arena.expr_kind(family_base)
             {
-                let qualified_family = Name::intern(format!("{namespace}.{family}"));
+                let qualified_family = Name::dotted(namespace, family);
                 if self.error_families.contains_key(&qualified_family) {
                     self.note_variant_qualifier(
                         span,
@@ -667,7 +667,7 @@ impl Checker {
                         arena, source, module, name, args, span,
                     );
                 }
-                let qualified_tag = Name::intern(format!("{module}.{name}"));
+                let qualified_tag = Name::dotted(module, name);
                 if let Some(info) = self.tag_variants.get(&qualified_tag) {
                     let selected = super::InferredVariant::Tag {
                         type_name: info.type_name,
@@ -1311,7 +1311,7 @@ impl Checker {
                         .resolve_call(&arena.arena, callee, self.current_namespace)
                         .is_some();
                     let positional_tag = matches!(arena.arena.expr_kind(base), ArenaExprKind::Ident(namespace)
-                    if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
+                    if self.tag_variants.contains_key(&Name::dotted(namespace, name)));
                     !positional_tag
                         && (static_namespace
                             || match receiver_type.clone().unwrap_or(Type::Unknown) {

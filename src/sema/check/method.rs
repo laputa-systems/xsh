@@ -520,7 +520,7 @@ impl Checker {
         for arg in args {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
-        if self.reject_unnarrowed_union(&base_ty, &format!("calling `{name}`"), span) {
+        if matches!(base_ty, Type::Union(_)) && self.reject_unnarrowed_union(&base_ty, &format!("calling `{name}`"), span) {
             return Type::Unknown;
         }
         let diagnostic = if let Type::Optional(inner) = &base_ty {

@@ -51,7 +51,7 @@ pub fn builtin_wire_mapping(name: &str) -> Arc<WireEnumMapping> {
 
 pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
     namespace.map_or(name, |namespace| {
-        Name::intern(format!("{namespace}.{name}"))
+        Name::dotted(namespace, name)
     })
 }
 

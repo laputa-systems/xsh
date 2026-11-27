@@ -359,6 +359,15 @@ impl Name {
         Self(symbol)
     }
 
+    pub fn dotted(namespace: Name, member: Name) -> Self {
+        let (namespace, member) = (namespace.as_str(), member.as_str());
+        let mut text = String::with_capacity(namespace.as_str().len() + 1 + member.as_str().len());
+        text.push_str(namespace.as_str());
+        text.push('.');
+        text.push_str(member.as_str());
+        Self::intern(text)
+    }
+
     pub const fn symbol(self) -> Symbol {
         self.0
     }

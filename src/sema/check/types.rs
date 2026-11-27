@@ -756,7 +756,7 @@ impl Checker {
             ArenaTypeExprTag::Qualified => {
                 let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                let qualified = Name::intern(format!("{namespace}.{name}"));
+                let qualified = Name::dotted(namespace, name);
                 if self.error_families.contains_key(&qualified) {
                     return Type::ErrorFamily(self.canonical_error_family(qualified));
                 }
@@ -922,7 +922,7 @@ impl Checker {
         name: Name,
         span: Span,
     ) -> Type {
-        let qualified = Name::intern(format!("{namespace}.{name}"));
+        let qualified = Name::dotted(namespace, name);
         if self.error_families.contains_key(&qualified) {
             return Type::ErrorFamily(self.canonical_error_family(qualified));
         }
