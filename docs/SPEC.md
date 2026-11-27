@@ -1525,10 +1525,10 @@ implement only the facets below (`xsht api language:facet`);
 
 | Facet | Meaning | Contract |
 |---|---|---|
-| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`, `ArchiveError.Canceled`, `SshError.Canceled`. |
-| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`, `ArchiveError.Limit`, `SshError.OutputLimit`. |
-| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Local`, host OS errors of every kind without a more specific facet. |
-| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, `ArchiveError.Open`, `ArchiveError.Io`, `ArchiveError.Corrupt`, `ArchiveError.Truncated`, `ArchiveError.Unsafe`, `SshError.Options`, `SshError.TrustMaterial`, `SshError.Key`, `SshError.Local`, host OS errors of kind `InvalidData`. |
+| `Canceled` | Process work was canceled before it completed. | Implemented by `ProcessError.Canceled`, `ArchiveError.Canceled`, `SshError.Canceled`, `SqliteError.Canceled`. |
+| `CaptureLimit` | Captured process output exceeded its limit. | Implemented by `ProcessError.CaptureLimit`, `CodecError.Limit`, `ArchiveError.Limit`, `SshError.OutputLimit`, `SqliteError.Limit`. |
+| `HostIo` | Any other host I/O failure. | Implemented by `ProcessError.Io`, `ProcessError.Redirection`, `NetError.Write`, `ArchiveError.Open`, `ArchiveError.Io`, `SshError.Local`, `SqliteError.Open`, `SqliteError.Engine`, host OS errors of every kind without a more specific facet. |
+| `InvalidData` | Data was malformed, such as invalid UTF-8 or a NUL byte in a target. | Implemented by `ProcessError.InvalidUtf8`, `ProcessError.InvalidTarget`, `CodecError.Syntax`, `CodecError.Encoding`, `CodecError.Schema`, `CodecError.Overflow`, `CodecError.DuplicateKey`, `ArchiveError.Open`, `ArchiveError.Io`, `ArchiveError.Corrupt`, `ArchiveError.Truncated`, `ArchiveError.Unsafe`, `SshError.Options`, `SshError.TrustMaterial`, `SshError.Key`, `SshError.Local`, `SqliteError.InvalidArgument`, `SqliteError.InvalidData`, host OS errors of kind `InvalidData`. |
 | `MismatchedExport` | A module export has another kind or signature than its contract declares. | Implemented by a failed `.require(Contract)` on a module whose export differs from the contract. |
 | `MissingExport` | A module lacks an export its contract requires. | Implemented by a failed `.require(Contract)` on a module without a required export. |
 | `NonzeroExit` | A process exited with a nonzero status. | Implemented by `ProcessError.NonzeroExit`. |
@@ -6430,6 +6430,57 @@ type; modules hold factories and operations with no natural receiver. The
 generated [standard-library index](reference/stdlib.md) lists the modules and
 signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
 `xsht api search:TERMS` for full contracts and examples.
+
+
+### SQLite
+
+`sqlite.open(path, mode:, busy_timeout:)` opens a file at a `Path` resolved in
+the current working-directory scope. `.Create` is the default mode.
+`.ReadWrite` requires an existing database. `.ReadOnly` opens the existing
+database read-only and does not create it. `sqlite.memory(busy_timeout:)` opens
+a private in-memory database. The default busy timeout is 5 seconds. A Duration
+from zero through 2,147,483,647 milliseconds may override it. Busy timeout
+bounds lock waiting. Cancellation and `within` deadlines govern computation.
+Foreign keys are enabled for every connection. The module does not change the
+journal or synchronization mode and does not load extensions.
+
+`SqliteDb.execute(sql, params)` and `SqliteDb.query(sql, params)` prepare exactly
+one statement. Whitespace and comments may follow it. `execute` requires no
+result columns and checks that before running the statement. It returns the
+SQLite connection's most recent completed INSERT, UPDATE, or DELETE change
+count. Other statements leave that count unchanged. `query` requires result
+columns, runs the statement to completion, and returns
+`{columns: List[Str], rows: List[List[SqlCell]]}`. Column and row order are
+preserved, as are duplicate column names and columns in an empty result.
+Every row has one cell per column. Results are limited to 1,000,000 cells and
+16 MiB of column names, text and blob bytes. Exceeding either limit fails.
+
+Parameters default to an empty list. `?` and `?NNN` bind by position. SQLite
+counts parameters through the highest index, including gaps. Repeated numbered
+parameters share one binding. Named parameters and incorrect counts fail.
+`null`, `Int`, finite `Float`, `Str`, and `Bytes` bind as SQLite NULL, INTEGER,
+REAL, TEXT, and BLOB. `Bool` binds as INTEGER 0 or 1. Query results return
+INTEGER as `Int`. TEXT must be UTF-8. Empty text, empty blobs, embedded NULs,
+and null remain distinct. Unsupported values and non-finite floats fail.
+
+`begin(mode:)` defaults to `.Deferred` and also accepts `.Immediate` or
+`.Exclusive`. `commit()` and `rollback()` end the transaction when SQLite
+accepts them. `in_transaction()` reads SQLite's current state. A failed
+statement does not necessarily abort a transaction. Closing a database rolls
+back unfinished work, and `with` releases its database on every exit. Cleanup
+never commits. Use an explicit transaction when a group of statements must be
+atomic: an adapter error does not undo earlier SQL effects.
+
+Operations return `SqliteError` with an operation and message. Engine errors
+carry SQLite primary and extended numeric codes where available. Errors raised
+by the adapter have null codes. Categories include invalid arguments, closed or
+foreign handles, busy or locked databases, constraints, open or read-only
+failures, invalid data, cancellation, result limits, and engine failures.
+A handle belongs to its evaluator and cannot be used by another worker.
+External commands may run while a database is open. A child created for a
+command does not use or close the inherited connection before exec or exit.
+SQLite may create journal or shared-memory files beside a file database.
+Typed paths and effects do not provide an operating-system sandbox.
 
 Contracts worth knowing without consulting the reference:
 

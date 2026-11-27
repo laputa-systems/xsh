@@ -525,6 +525,13 @@ POSIX-like shell word rendering helpers.
 - `shlex.join(argv: List[Str]) -> Str` — Renders argv values as a shell-safe command string.
 - `shlex.quote(value: Str) -> Str` — Renders one value as a shell-safe word.
 
+### `sqlite`
+
+Embedded SQLite databases and transactions.
+
+- `sqlite.memory(busy_timeout: Duration = default) -> Result[SqliteDb, SqliteError]` — Opens a private in-memory database.
+- `sqlite.open(path: Path, mode: sqlite.OpenMode = default, busy_timeout: Duration = default) -> Result[SqliteDb, SqliteError]` — Opens a file database in the current working-directory scope.
+
 ### `ssh`
 
 Native SSH connections and remote command execution.
@@ -934,6 +941,16 @@ YAML 1.2 decoding, encoding, and files.
 - `Set[T].len() -> Int` — Returns the number of elements in a set.
 - `Set[T].remove(item: T) -> Set[T]` — Returns the set without one element.
 - `Set[T].to_list() -> List[T]` — Lists the elements of a set in its iteration order.
+
+### SqliteDb
+
+- `SqliteDb.begin(mode: sqlite.TransactionMode = default) -> Result[Unit, SqliteError]` — Begins a transaction.
+- `SqliteDb.close() -> Result[Unit, SqliteError]` — Closes the database and rolls back unfinished work.
+- `SqliteDb.commit() -> Result[Unit, SqliteError]` — Commits the active transaction.
+- `SqliteDb.execute(sql: Str, params: List[Union[Int, Float, Str, Bytes, Bool]?] = default) -> Result[Int, SqliteError]` — Executes one statement without result columns.
+- `SqliteDb.in_transaction() -> Result[Bool, SqliteError]` — Reports SQLite's actual transaction state.
+- `SqliteDb.query(sql: Str, params: List[Union[Int, Float, Str, Bytes, Bool]?] = default) -> Result[{columns: List[Str], rows: List[List[Union[Int, Float, Str, Bytes]?]]}, SqliteError]` — Executes one statement with result columns and materializes its rows.
+- `SqliteDb.rollback() -> Result[Unit, SqliteError]` — Rolls back the active transaction.
 
 ### Status
 

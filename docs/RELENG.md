@@ -158,6 +158,17 @@ musl (`vfprintf`, the regex engine, the crypt functions); the `xshi` stub's
 
 ## Size record
 
+SQLite adds `rusqlite` 0.43.0 with the `bundled` and `hooks` features and
+default features disabled. Its bundled engine is SQLite 3.54.1. Both builds
+below used the pinned Linux test image and `cargo dev dist --docker never`
+for stripped x86_64 musl `dist` products. The baseline is `6ab55223c`.
+
+| Product | Baseline bytes | SQLite bytes | Change |
+|---|---:|---:|---:|
+| `xsh` | 27,023,152 | 28,820,816 | +1,797,664 |
+| `xsht` | 39,356,784 | 41,178,192 | +1,821,408 |
+| `xshi` | 44,240 | 44,240 | 0 |
+
 | Date | Source | Product | Stripped `dist` bytes |
 |---|---|---|---|
 | 2026-10-29 | `e0f3028ce` | `xsh` | 25,945,608 |

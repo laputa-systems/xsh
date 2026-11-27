@@ -94,9 +94,9 @@ still own the observation boundary.
 
 ### Persistence boundaries
 
-Do not add a SQLite host API without a consumer that demonstrates a measured
-removal of persistence machinery. Filesystem publication, external effects,
-and early boot still need their own coordination and recovery.
+The `sqlite` standard module provides database transactions through a small
+host adapter. Filesystem publication, external effects, recovery, and early
+boot still need their own coordination.
 
 A cross-process checked-program cache was declined: the prototype fell short of
 the startup target because verification dominated the cached start. Reconsider
