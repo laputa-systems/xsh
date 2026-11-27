@@ -164,9 +164,14 @@ impl<T> InstructionTable<T> {
     }
 
     fn insert_new(&mut self, owner: u32, instruction: usize, value: T) -> bool {
-        if self.contains(owner, instruction) { return false; }
-        self.insert(owner, instruction, value);
-        true
+        match self.dense.get_mut(instruction) {
+            Some(slot @ None) => { *slot = Some((owner, value)); true }
+            Some(Some((resident, _))) if *resident == owner => false,
+            _ => match self.displaced.entry((owner, instruction)) {
+                std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(value); true }
+                std::collections::hash_map::Entry::Occupied(_) => false,
+            },
+        }
     }
 
     fn get_or_default(&mut self, owner: u32, instruction: usize) -> &mut T where T: Default {
