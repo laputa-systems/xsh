@@ -73,6 +73,22 @@
         "kind": "empty"
       },
       "trace": true
+    },
+    {
+      "path": "examples/sqlite-settings.xsh",
+      "args": [
+        "--database",
+        "target/sqlite-settings.sqlite"
+      ],
+      "expected_status": 0,
+      "stdout": {
+        "kind": "exact",
+        "value": "1 rows updated\nfeature = enabled\n"
+      },
+      "stderr": {
+        "kind": "empty"
+      },
+      "trace": true
     }
   ]
 }
