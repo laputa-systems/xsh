@@ -1937,7 +1937,7 @@ for name in ["a", "b", "c", "d", "e"] {{
   assert result.stdout == "42\n42\n42\n42\n42\n", result.stdout
   var checked = 0
   var hits = 0
-  for line in trace.read_text()?.lines() {
+  for line in trace.lines()? {
     if f"{root}/shared.xsh" in line {
       if "\tchecked\t" in line { checked = checked + 1 }
       if "\tcheck_hit\t" in line { hits = hits + 1 }
