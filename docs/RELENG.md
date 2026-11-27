@@ -166,7 +166,7 @@ for stripped x86_64 musl `dist` products. The baseline is `6ab55223c`.
 | Product | Baseline bytes | SQLite bytes | Change |
 |---|---:|---:|---:|
 | `xsh` | 27,023,152 | 28,820,816 | +1,797,664 |
-| `xsht` | 39,356,784 | 41,178,192 | +1,821,408 |
+| `xsht` | 39,356,784 | 41,178,320 | +1,821,536 |
 | `xshi` | 44,240 | 44,240 | 0 |
 
 | Date | Source | Product | Stripped `dist` bytes |
