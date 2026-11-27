@@ -1675,6 +1675,55 @@ pub(super) struct TagVariant {
     fields: Vec<TypeAnnRef>,
 }
 
+/// Builtin error families and enum variants, built once per process. Every
+/// name they hold is a preloaded symbol, so the tables are valid in every
+/// symbol owner.
+struct BuiltinCheckTables {
+    error_facets: Vec<Name>,
+    error_families: Vec<(Name, ErrorFamilyInfo)>,
+    enum_variants: Vec<(Name, QualifiedName, TagVariantInfo)>,
+}
+
+impl BuiltinCheckTables {
+    fn get() -> &'static Self {
+        static TABLES: std::sync::OnceLock<BuiltinCheckTables> = std::sync::OnceLock::new();
+        TABLES.get_or_init(Self::build)
+    }
+
+    fn build() -> Self {
+        // The built-in facet vocabulary is valid in patterns everywhere; user
+        // `error` declarations extend it within their scope.
+        let error_facets = xsh_registry::errors::ErrorFacet::ALL.iter().map(|facet| Name::intern(facet.name())).collect();
+        let mut error_families = Vec::new();
+        for family in xsh_registry::errors::builtin_error_families() {
+            let fields = family.fields.iter()
+                .map(|field| (Name::intern(field.name), crate::modules::signature::convert_type(&field.ty)))
+                .collect::<Vec<_>>();
+            let mut variants = BTreeMap::new();
+            for variant in family.variants {
+                variants.insert(
+                    Name::intern(variant.name),
+                    ErrorVariantInfo::declared(fields.clone(), variant.facets.iter().map(|facet| Name::intern(facet.name())).collect()),
+                );
+            }
+            let family_name = if family.name == "ProcessError" { Name::PROCESS_ERROR } else { Name::intern(family.name) };
+            error_families.push((family_name, ErrorFamilyInfo { variants: Arc::new(variants) }));
+        }
+        let mut enum_variants = Vec::new();
+        for entry in xsh_registry::enums::builtin_enums() {
+            let type_name = Name::intern(entry.name);
+            for variant in entry.variants {
+                let variant_name = Name::intern(variant.name);
+                let info = TagVariantInfo { type_name, field_count: 0, field_types: Vec::new() };
+                enum_variants.push((Name::dotted(type_name, variant_name), QualifiedName::new(type_name, variant_name), info));
+            }
+        }
+        debug_assert!(error_families.iter().all(|(name, _)| name.is_preloaded()));
+        debug_assert!(enum_variants.iter().all(|(qualified, _, _)| qualified.is_preloaded()));
+        Self { error_facets, error_families, enum_variants }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorFamilyInfo {
     pub variants: Arc<BTreeMap<Name, ErrorVariantInfo>>,
@@ -2545,75 +2594,18 @@ impl Checker {
             branch_constructs: FxHashSet::default(),
             statement_root: None,
         };
-        checker.register_builtin_process_error_family();
-        checker.register_builtin_enums();
+        checker.register_builtin_tables();
         checker.checked_declarations.builtin_error_families = checker.error_families.clone();
         checker.define_standard_values();
         checker
     }
 
-    fn register_builtin_enums(&mut self) {
-        for entry in xsh_registry::enums::builtin_enums() {
-            let type_name = Name::intern(entry.name);
-            for variant in entry.variants {
-                let info = TagVariantInfo {
-                    type_name,
-                    field_count: 0,
-                    field_types: Vec::new(),
-                };
-                self.tag_variants.insert(
-                    Name::intern(format!("{}.{}", entry.name, variant.name)),
-                    info.clone(),
-                );
-                self.checked_declarations.builtin_enum_variants.push((
-                    QualifiedName::new(type_name, Name::intern(variant.name)),
-                    info,
-                ));
-            }
-        }
-    }
-
-    fn register_builtin_process_error_family(&mut self) {
-        // The built-in facet vocabulary is valid in patterns everywhere; user
-        // `error` declarations extend it within their scope.
-        self.error_facets.extend(
-            xsh_registry::errors::ErrorFacet::ALL
-                .iter()
-                .map(|facet| Name::intern(facet.name())),
-        );
-        for family in xsh_registry::errors::builtin_error_families() {
-            let fields = family
-                .fields
-                .iter()
-                .map(|field| {
-                    (
-                        Name::intern(field.name),
-                        crate::modules::signature::convert_type(&field.ty),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let mut variants = BTreeMap::new();
-            for variant in family.variants {
-                variants.insert(
-                    Name::intern(variant.name),
-                    ErrorVariantInfo::declared(
-                        fields.clone(),
-                        variant
-                            .facets
-                            .iter()
-                            .map(|facet| Name::intern(facet.name()))
-                            .collect(),
-                    ),
-                );
-            }
-            let family_name = if family.name == "ProcessError" {
-                Name::PROCESS_ERROR
-            } else {
-                Name::intern(family.name)
-            };
-            self.error_families
-                .insert(family_name, ErrorFamilyInfo { variants: Arc::new(variants) });
-        }
+    fn register_builtin_tables(&mut self) {
+        let tables = BuiltinCheckTables::get();
+        self.error_facets.extend(tables.error_facets.iter().copied());
+        self.error_families.extend(tables.error_families.iter().map(|(name, family)| (*name, family.clone())));
+        self.tag_variants.extend(tables.enum_variants.iter().map(|(qualified, _, info)| (*qualified, info.clone())));
+        self.checked_declarations.builtin_enum_variants.extend(tables.enum_variants.iter().map(|(_, name, info)| (*name, info.clone())));
     }
 
     /// Removed vocabulary is recoverable for tooling, but always rejects execution.
