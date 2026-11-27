@@ -19,7 +19,7 @@ test pure_error_returns_preserve_explicit_payloads_and_nominal_errors {
   let word: Result[Str] = pure_return_attempt(false, "kept")
   assert integer == Ok(7)
   assert word == Ok("kept")
-  assert match pure_return_attempt(true, 7) { Err(_) => true; Ok(_) => false }
+  assert pure_return_attempt(true, 7) is Err(_)
   assert match pure_return_string(true, 7) { Err(problem) => problem == "stop"; Ok(_) => false }
 }
 

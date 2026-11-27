@@ -30,7 +30,7 @@ test inferred_pure_results_wrap_success_and_preserve_failures {
   assert word == Ok("kept")
   assert row == Ok({value: 7})
   assert integer == completion_integer_typed(false)
-  assert match completion_integer(true) { Err(_) => true; Ok(_) => false }
-  assert match completion_word(true) { Err(_) => true; Ok(_) => false }
-  assert match completion_row(true) { Err(_) => true; Ok(_) => false }
+  assert completion_integer(true) is Err(_)
+  assert completion_word(true) is Err(_)
+  assert completion_row(true) is Err(_)
 }
