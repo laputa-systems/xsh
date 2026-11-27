@@ -2365,7 +2365,7 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
 
 proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, output: Path, has_output: Bool) [fs, io, env, process, error] {
   let compress = startable_compress_program(opts.compress_program)
-  var temp_root = null
+  var temp_root: FsRoot? = null
   defer { if let root = temp_root { root.close() } }
 
   let requested_limit = if buffer_size == 0 { 9223372036854775807 } else { buffer_size }
