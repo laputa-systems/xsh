@@ -1477,7 +1477,7 @@ export proc plan_paths(ctx: context.Context, profile: tests.TestProfile, paths: 
     let resolved_path = native_path.resolve()?
     let owned_root = ctx.root.resolve()?.display() + "/"
     return Err(PlanError.Invalid(detail: f"native case {id} escapes the owned source root")) when ! resolved_path.display().starts_with(owned_root)
-    return Err(PlanError.Invalid(detail: f"native case {id} is not a file")) when ! resolved_path.is_file()?
+    return Err(PlanError.Invalid(detail: f"native case {id} is not a file")) when ! resolved_path.is_file()
     let note = lane_note(ctx, file)?
     return Err(PlanError.Invalid(detail: unprivileged_lane_gap(file))) when ! note.keep
     for gap in note.unresolved { unresolved += [gap] when gap not in unresolved }
