@@ -246,3 +246,48 @@ db.close()?
   assert "SqliteDb.query" in trace.stderr
   assert "sqlite-secret-972" not in trace.stderr
 }
+
+proc sqlite_fails_after_write(file: Path) [fs, error] -> Result[Unit] {
+  with db = sqlite.open(file)? {
+    db.begin()?
+    let _ = db.execute("INSERT INTO item VALUES (3)")?
+    let _ = db.execute("INSERT INTO missing VALUES (1)")?
+  }
+}
+
+test test_sqlite_propagated_error_rolls_back { |ctx|
+  let dir = test.temp_dir(ctx)?
+  let file = fp"{dir}/state.sqlite"
+  with db = sqlite.open(file)? {
+    let _ = db.execute("CREATE TABLE item (value INTEGER)")?
+  }
+  assert sqlite_fails_after_write(file) is Err(_)
+  with db = sqlite.open(file)? {
+    assert db.query("SELECT value FROM item")?.rows == []
+  }
+}
+
+test test_sqlite_repeated_close_releases_connections {
+  for _ in range(512) {
+    with db = sqlite.memory()? {
+      assert db.query("SELECT 1")?.rows[0][0] == 1
+      db.close()?
+    }
+  }
+}
+
+test test_sqlite_cleanup_failure_preserves_primary_error { |ctx|
+  let failed = test.expect(ctx, """
+proc foreign() [fs, error] -> Result[SqliteDb] {
+  let handles = [1, 2] |> par-map(jobs: 2) { |_| sqlite.memory()? }
+  handles[0]
+}
+proc body_fails(db: SqliteDb) [fs, error] {
+  with held = db {
+    fail "body failed first"
+  }
+}
+body_fails(foreign()?)
+""", status: 3, stderr: ["body failed first", "cleanup error", "database handle is closed or belongs to another evaluator"])?
+  assert failed.stdout == ""
+}
