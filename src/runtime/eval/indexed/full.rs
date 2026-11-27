@@ -4253,7 +4253,7 @@ struct FullCheckpoint {
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FullBuilder {
     store: FullStore,
-    statement_spans: BTreeMap<usize, Span>,
+    statement_spans: Vec<Option<Span>>,
     semantic: SemanticPoolBuilder,
     source_scheme_callables: Option<Arc<crate::sema::scheme_callable::SchemeCallableTable>>,
     scheme_callable_ids: BTreeMap<crate::sema::types::SchemeCallableId, u32>,
@@ -4498,10 +4498,8 @@ impl FullBuilder {
         let headers = (0..self.store.functions.len())
             .map(|_| std::sync::OnceLock::new())
             .collect();
-        let mut statement_spans = vec![None; self.store.tags.len()];
-        for (instruction, span) in self.statement_spans {
-            statement_spans[instruction] = Some(span);
-        }
+        let mut statement_spans = self.statement_spans;
+        statement_spans.resize(self.store.tags.len(), None);
         let mut program = FullProgram {
             store: self.store,
             statement_spans: statement_spans.into(),
@@ -6139,7 +6137,7 @@ impl FullBuilder {
     }
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
-        self.statement_spans.retain(|instruction, _| *instruction < checkpoint.tags);
+        self.statement_spans.truncate(checkpoint.tags);
         self.store.tags.truncate(checkpoint.tags);
         self.store.registered_calls.retain(|instruction, _| (*instruction as usize) < checkpoint.tags);
         self.store.resource_transfers.truncate(checkpoint.tags);
@@ -22463,7 +22461,10 @@ macro_rules! impl_build_id_codec {
                     source_span.is_some(),
                 )?;
                 if let (Some(instruction), Some(span)) = (source_instruction, source_span) {
-                    builder.statement_spans.insert(instruction, span);
+                    if builder.statement_spans.len() <= instruction {
+                        builder.statement_spans.resize(instruction + 1, None);
+                    }
+                    builder.statement_spans[instruction] = Some(span);
                 }
                 if let Some(instruction) = instruction {
                     builder.attach_value_materialization(instruction, scheme_guard_scope)?;

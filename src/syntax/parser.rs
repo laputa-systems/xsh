@@ -57,8 +57,6 @@ pub struct Parser<'a> {
     token_table: TokenTable,
     tokens_match_source: bool,
     quoted: Vec<(usize, literal::QuotedLiteral)>,
-    /// Token end offsets recorded by the lexer, when this parser's tokens
-    /// came from lexing `source`; otherwise ends are rescanned from source.
     token_ends: Vec<u32>,
     index: usize,
     comma_is_terminator: bool,
