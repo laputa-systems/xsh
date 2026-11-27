@@ -29,8 +29,8 @@ theorem pattern_cycle_is_rejected :
 set_option maxRecDepth 10000 in
 /-- The `Use` step of the root program imports program 1; importing the root program is a cycle. -/
 theorem driver_program_cycle_is_rejected :
-    verifyCodes (mutatedFeatures "\"00000758\",\"0000000a\",\"00000001\",\"00000007\""
-      "\"00000758\",\"0000000a\",\"00000002\",\"00000007\"") = false := by
+    verifyCodes (mutatedFeatures "\"00000759\",\"0000000a\",\"00000001\",\"00000007\""
+      "\"00000759\",\"0000000a\",\"00000002\",\"00000007\"") = false := by
   decide +kernel
 
 set_option maxRecDepth 10000 in
