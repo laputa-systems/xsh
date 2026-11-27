@@ -251,7 +251,7 @@ export pure internal_argv(
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
   if operation == "test-linux-split" or operation == "test-linux-ci-split" {
-    argv += ["--memory=1g", "--memory-swap=1g", "-e", "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"]
+    argv += ["--memory=1g", "--memory-swap=1g", "-e", "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/laputa/bin"]
     if let file = cidfile { argv += ["-v", f"{file.parent()}:/split-control"] }
   }
 

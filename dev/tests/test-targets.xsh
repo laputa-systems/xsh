@@ -209,7 +209,7 @@ test test_docker_argv_applies_split_resource_limits_before_the_image { |ctx|
       }
       assert image_seen
       assert "--cpus=0.01" not in docker_options_before_image
-      assert "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" in docker_options_before_image
+      assert "PATH=/work/dev/tests/split-bin:/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/laputa/bin" in docker_options_before_image
       assert "--memory=1g" in docker_options_before_image
       assert "--memory-swap=1g" in docker_options_before_image
       assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
