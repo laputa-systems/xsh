@@ -76,18 +76,38 @@ impl RecordShorthandIndex {
     }
 }
 
+type SourceReferences = std::sync::Arc<[(Span, Name, Option<ExprId>)]>;
+
 #[derive(Clone, Default)]
 pub(super) struct ReturnInferenceIndex {
-    references: Vec<(Span, Name, Option<ExprId>)>,
+    references: BTreeMap<crate::source::SourceId, SourceReferences>,
 }
 
 impl ReturnInferenceIndex {
     pub(super) fn merge_owners<'a>(&mut self, others: impl IntoIterator<Item = &'a Self>) {
         for other in others {
-            self.references.extend(other.references.iter().copied());
+            for (&source, references) in &other.references {
+                match self.references.entry(source) {
+                    std::collections::btree_map::Entry::Vacant(entry) => { entry.insert(std::sync::Arc::clone(references)); }
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        if std::sync::Arc::ptr_eq(entry.get(), references) || entry.get()[..] == references[..] { continue; }
+                        let mut merged = entry.get().iter().chain(references.iter()).copied().collect::<Vec<_>>();
+                        merged.sort();
+                        merged.dedup();
+                        entry.insert(merged.into());
+                    }
+                }
+            }
         }
-        self.references.sort();
-        self.references.dedup();
+    }
+
+    fn references_in(&self, source: crate::source::SourceId) -> &[(Span, Name, Option<ExprId>)] {
+        self.references.get(&source).map_or(&[], |references| references)
+    }
+
+    #[cfg(test)]
+    fn flattened(&self) -> Vec<(Span, Name, Option<ExprId>)> {
+        self.references.values().flat_map(|references| references.iter().copied()).collect()
     }
 
     pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
@@ -128,7 +148,11 @@ impl ReturnInferenceIndex {
             }
         }
         references.sort_unstable_by_key(|(span, _, _)| (span.source_id, span.start()));
-        Self { references }
+        let mut grouped = BTreeMap::new();
+        for chunk in references.chunk_by(|left, right| left.0.source_id == right.0.source_id) {
+            grouped.insert(chunk[0].0.source_id, SourceReferences::from(chunk));
+        }
+        Self { references: grouped }
     }
 }
 
@@ -225,7 +249,7 @@ impl Checker {
                 }
             }
         }
-        let index = match &self.return_inference_index {
+        let reference_index = match &self.return_inference_index {
             Some(index) => index.clone(),
             None => {
                 let index = std::sync::Arc::new(ReturnInferenceIndex::collect(view));
@@ -233,7 +257,6 @@ impl Checker {
                 index
             }
         };
-        let references = &index.references;
         let mut edges = vec![Vec::new(); declarations.len()];
         for (index, decl) in declarations.iter().enumerate() {
             let dependency_span = match program.arena.stmt_kind(decl.statement) {
@@ -244,14 +267,10 @@ impl Checker {
                 }
                 _ => decl.span,
             };
-            let start = references.partition_point(|(span, _, _)| {
-                (span.source_id, span.start())
-                    < (dependency_span.source_id, dependency_span.start())
-            });
+            let references = reference_index.references_in(dependency_span.source_id);
+            let start = references.partition_point(|(span, _, _)| span.start() < dependency_span.start());
             for &(span, name, expression) in &references[start..] {
-                if span.source_id != dependency_span.source_id
-                    || span.start() >= dependency_span.end()
-                {
+                if span.start() >= dependency_span.end() {
                     break;
                 }
                 if span.end() > dependency_span.end() {
@@ -1297,10 +1316,10 @@ export const plain = {value: 1}
             let expected = whole_arena_references(view);
             assert!(!expected.is_empty());
             assert_eq!(
-                ReturnInferenceIndex::collect_with(view, &index).references,
+                ReturnInferenceIndex::collect_with(view, &index).flattened(),
                 expected
             );
-            assert_eq!(ReturnInferenceIndex::collect(view).references, expected);
+            assert_eq!(ReturnInferenceIndex::collect(view).flattened(), expected);
         }
         let shorthand_sources = views
             .iter()
