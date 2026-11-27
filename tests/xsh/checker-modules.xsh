@@ -947,7 +947,7 @@ proc diamond_check_allocation(ctx: TestContext, diamonds: Int) [fs, process, err
     lines += [f"let total_{index + 1}: Int = total_{index} + left_{index}.value + right_{index}.value"]
   }
   lines += [f"print $total_{diamonds}"]
-  fp"{root}/main.xsh".write(lines.join("\n") + "\n")
+  fp"{root}/main.xsh".write_lines(lines)
   let report = run.capture --text "xsht" "frontend-stats" "--json" fp"{root}/main.xsh"
   assert report.status.exited_with(0), report.stderr
   let parsed = json.decode(report.stdout)?.require(FrontendReport)?
