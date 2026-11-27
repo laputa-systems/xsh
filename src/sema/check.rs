@@ -1677,7 +1677,7 @@ pub(super) struct TagVariant {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorFamilyInfo {
-    pub variants: BTreeMap<Name, ErrorVariantInfo>,
+    pub variants: Arc<BTreeMap<Name, ErrorVariantInfo>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2612,7 +2612,7 @@ impl Checker {
                 Name::intern(family.name)
             };
             self.error_families
-                .insert(family_name, ErrorFamilyInfo { variants });
+                .insert(family_name, ErrorFamilyInfo { variants: Arc::new(variants) });
         }
     }
 

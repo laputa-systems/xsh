@@ -53,9 +53,18 @@ impl Mapper<'_> {
     }
 
     fn family(&mut self, family: &mut super::super::ErrorFamilyInfo) -> Result<(), SchemeCallableError> {
-        for variant in family.variants.values_mut() {
-            for (_, ty) in &mut variant.fields.0 { self.ty(ty)?; }
+        let mut changed: Option<std::collections::BTreeMap<_, _>> = None;
+        for (name, variant) in family.variants.iter() {
+            for (index, (_, ty)) in variant.fields.0.iter().enumerate() {
+                let mut mapped = ty.clone();
+                self.ty(&mut mapped)?;
+                if mapped != *ty {
+                    let variants = changed.get_or_insert_with(|| family.variants.as_ref().clone());
+                    if let Some(variant) = variants.get_mut(name) { variant.fields.0[index].1 = mapped; }
+                }
+            }
         }
+        if let Some(variants) = changed { family.variants = std::sync::Arc::new(variants); }
         Ok(())
     }
 

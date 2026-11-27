@@ -3042,7 +3042,7 @@ impl Checker {
             }
             variants.insert(variant.name, ErrorVariantInfo::declared(fields, facets));
         }
-        let family = ErrorFamilyInfo { variants };
+        let family = ErrorFamilyInfo { variants: std::sync::Arc::new(variants) };
         if let Some(namespace) = self.current_namespace {
             let identity = Name::intern(format!("{namespace}.{}", def.name));
             self.error_family_identities.insert(def.name, identity);
