@@ -10,6 +10,7 @@ pub struct CompactLexerOutput {
     pub token_table: TokenTable,
     pub diagnostics: Vec<Diagnostic>,
     pub(crate) quoted: Vec<(usize, literal::QuotedLiteral)>,
+    pub(crate) token_ends: Vec<u32>,
     _symbols: SymbolOwner,
 }
 
@@ -24,6 +25,7 @@ pub struct Lexer<'a> {
     // no names, so it can run without a symbol owner.
     scan_only: bool,
     quoted: Vec<(usize, literal::QuotedLiteral)>,
+    token_ends: Vec<u32>,
 }
 
 /// How the tokens after an f-string `{` end.
@@ -75,6 +77,7 @@ pub(crate) fn interpolation_end(source: &str, start: usize) -> InterpolationEnd 
         symbols: SymbolOwner::new(),
         scan_only: true,
         quoted: Vec::new(),
+        token_ends: Vec::new(),
     };
     let mut depth = 0usize;
     loop {
@@ -131,6 +134,7 @@ impl<'a> Lexer<'a> {
             symbols,
             scan_only: false,
             quoted: Vec::new(),
+            token_ends: Vec::with_capacity(estimated_tokens),
         }
     }
 
@@ -141,6 +145,7 @@ impl<'a> Lexer<'a> {
             token_table: std::mem::take(&mut self.token_builder).finish(),
             diagnostics: self.diagnostics,
             quoted: self.quoted,
+            token_ends: self.token_ends,
             _symbols: self.symbols,
         }
     }
@@ -832,11 +837,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {
+    fn push(&mut self, kind: TokenKind, start: usize, end: usize) {
         if self.scan_only {
             return;
         }
         self.token_builder.push_kind(&kind, start);
+        self.token_ends.push(u32::try_from(end).expect("token end exceeded u32 byte offset"));
     }
 
     fn span(&self, start: usize, end: usize) -> Span {

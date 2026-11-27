@@ -57,6 +57,9 @@ pub struct Parser<'a> {
     token_table: TokenTable,
     tokens_match_source: bool,
     quoted: Vec<(usize, literal::QuotedLiteral)>,
+    /// Token end offsets recorded by the lexer, when this parser's tokens
+    /// came from lexing `source`; otherwise ends are rescanned from source.
+    token_ends: Vec<u32>,
     index: usize,
     comma_is_terminator: bool,
     /// The first token of the match arm body being parsed, when its `=>`
@@ -145,6 +148,7 @@ impl<'a> Parser<'a> {
             let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
             parser.tokens_match_source = true;
             parser.quoted = lexed.quoted;
+            parser.token_ends = lexed.token_ends;
             parser.diagnostics.extend(lexed.diagnostics);
             let cst = LazyCst::new(parser.source_id, parser.source, parser.token_table.clone());
             let mut arena = ArenaProgramBuilder::with_source_and_token_capacity_and_symbols(
@@ -180,6 +184,7 @@ impl<'a> Parser<'a> {
             let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
             parser.tokens_match_source = true;
             parser.quoted = lexed.quoted;
+            parser.token_ends = lexed.token_ends;
             parser.diagnostics.extend(lexed.diagnostics);
             parser.parse_into_arena_builder(arena)
         })
@@ -197,6 +202,7 @@ impl<'a> Parser<'a> {
             token_table,
             tokens_match_source: false,
             quoted: Vec::new(),
+            token_ends: Vec::new(),
             stray_line_continuations,
             index: 0,
             comma_is_terminator: false,
@@ -1138,6 +1144,13 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn end_at(&self, index: usize) -> Option<usize> {
+        if let Some(&end) = self.token_ends.get(index) {
+            return Some(end as usize);
+        }
+        self.end_at_rescanned(index)
+    }
+
+    fn end_at_rescanned(&self, index: usize) -> Option<usize> {
         let tag = self.token_table.tag_at(index)?;
         if matches!(tag, TokenTag::String | TokenTag::PathString | TokenTag::GlobString
             | TokenTag::EnvString | TokenTag::FmtString | TokenTag::PathFmtString
