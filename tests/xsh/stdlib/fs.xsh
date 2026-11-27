@@ -504,7 +504,7 @@ root.write_atomic(p"state", bytes.zero(8192)?)
   assert root.read_text(p"state")? == "old"
   let leftovers = [entry for entry in root.children(p".")?.children if entry != p"state"]
   assert leftovers.len() == 1
-  let partial_path = leftovers[0].require(RelPath)?
+  let partial_path = leftovers[0]
   let partial = root.stat(partial_path)?
   assert partial.kind == "file" and partial.size == 4096
   assert outside_sentinel.read_text()? == "outside"
