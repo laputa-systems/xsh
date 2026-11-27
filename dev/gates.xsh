@@ -175,7 +175,6 @@ pure validate_cases(entries: List[CatalogCase]) -> Result[Unit, Error] {
     return Err(PlanError.Invalid(detail: f"duplicate catalogue case ID {entry.id}")) when entry.id in ids
     ids += [entry.id]
   }
-  return
 }
 
 ## Resolves the entire focused dependency closure before returning commands.

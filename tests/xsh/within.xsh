@@ -431,7 +431,6 @@ proc check_silent_server_deadlines(first_port: Int, second_port: Int) [net, time
   assert timed_out(handled)
   assert ! went_on
   assert time.now() - started < 10000
-  return
 }
 
 test test_within_stops_a_network_wait_on_a_silent_server {
