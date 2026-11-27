@@ -10,7 +10,7 @@ use stage_contract as contract
 use test_workflows as tests
 
 ## Gate families owned by the repository's testing contract.
-export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Automation, Core, Showcase, Soundness, Interactive }
+export enum Area { Compile, Syntax, Grammar, Checker, Lowering, Runtime, RouteWitness, Sugar, Tooling, Api, Stdlib, Memory, Docs, Examples, Formal, Automation, Core, Showcase, Soundness, Interactive }
 
 ## A path that has no known verification owner.
 export error GateError = UnmappedPath(path: Str)
@@ -456,6 +456,8 @@ export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Stdlib, Api] when changed_path == "src/stdlib.rs" or changed_path == "tests/stdlib_port.rs" or changed_path.starts_with("stdlib/") or changed_path.starts_with("src/modules/") or changed_path == "src/modules.rs"
   return [Docs, Api] when changed_path.starts_with("docs/snippets/api/")
   return [Docs] when changed_path.starts_with("docs/")
+  return [Examples] when changed_path.starts_with("examples/")
+  return [Formal] when changed_path in ["formal/coverage.json", "formal/Xsh/IR/Raw/Schema.lean", "formal/Xsh/IR/Raw/Exported.lean", "formal/Xsh/IR/Raw/ExportedFeatures.lean"]
   return [Core] when changed_path.starts_with("core/")
   return [Showcase] when changed_path.starts_with("showcase/")
   return [Automation] when changed_path.starts_with("dev/") or changed_path.starts_with("tools/") or changed_path == "Makefile"
@@ -555,6 +557,8 @@ pure requires_process_products(area: Area) -> Bool {
     Stdlib => true
     Memory => false
     Docs => false
+    Examples => true
+    Formal => false
     Automation => true
     Core => true
     Showcase => true
@@ -690,6 +694,13 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
       Stdlib => plan += [rust_gate(ctx, profile, "test-stdlib-catalog", [@root_lib, "stdlib::tests::every_catalog_module_parses_checks_and_lowers"], debug: true)?, native_gate(ctx, profile, "tests/xsh/stdlib")],
       Memory => plan += [rust_gate(ctx, profile, "test-frontend-memory", [@root_lib, "frontend_stats::tests"], debug: true)?, stages.command("frontend-memory-report", ctx.target.triple, tests.product_path(ctx, profile, tests.Xsht).display(), [tests.product_path(ctx, profile, tests.Xsht).display(), "frontend-stats", "--json", "tests/fixtures/frontend-indexed"], ctx.root, {})],
       Docs => {},
+      Examples => plan += [stages.command("check-examples", ctx.target.triple,
+        tests.product_path(ctx, profile, tests.Xsht).display(),
+        [tests.product_path(ctx, profile, tests.Xsht).display(), "check", "examples"], ctx.root, {})],
+      Formal => plan += [
+        rust_gate(ctx, profile, "test-formal-raw-export", [@root_lib, "lean_raw_ir_modules_are_generated_from_the_rust_schema_and_export"], debug: true)?,
+        stages.command("check-formal-inventory", ctx.target.triple, "python3", ["python3", "formal/scripts/check-inventory.py"], ctx.root, {}),
+      ],
       Automation => plan += [native_gate(ctx, profile, "dev/tests")],
       Core => plan += [native_gate(ctx, profile, "core/tests")],
       Showcase => plan += [native_gate(ctx, profile, "showcase/tests")],

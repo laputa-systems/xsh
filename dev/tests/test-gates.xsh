@@ -530,6 +530,9 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   assert gates.areas_for("crates/xsht/tests/syntax.rs")? == [gates.Syntax]
   assert gates.areas_for("tests/grammar.rs")? == [gates.Syntax]
   assert gates.areas_for("docs/snippets/api/fs.xsh")? == [gates.Docs, gates.Api]
+  assert gates.areas_for("examples/sqlite-settings.xsh")? == [gates.Examples]
+  assert gates.areas_for("formal/coverage.json")? == [gates.Formal]
+  assert gates.areas_for("formal/Xsh/IR/Raw/Exported.lean")? == [gates.Formal]
   let baseline = gates.select(["dev/ratchets.json"])?
   assert baseline.areas.is_empty()
   assert baseline.native_files == ["dev/tests/test-source-metrics.xsh", "dev/tests/test-ratchets.xsh"]
@@ -537,6 +540,17 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
     Ok(_) => test.fail("a changed path without a gate owner was accepted")
     Err(error) => assert error.message == "GateError.UnmappedPath"
   }
+}
+
+test test_generated_formal_artifacts_and_examples_select_their_checks {
+  let ctx = fixtures.linux_context(p"/repo")?
+  let selected = gates.select(["formal/coverage.json", "formal/Xsh/IR/Raw/Exported.lean", "examples/sqlite-settings.xsh"])?
+  let plan = gates.lane_plan(ctx, tests.Verification, selected)?
+  let stages = plan |> map .stage
+  assert "test-formal-raw-export" in stages
+  assert "check-formal-inventory" in stages
+  assert "check-examples" in stages
+  assert gates.areas_for("formal/Xsh/IR/Raw/Certificate.lean") is Err(_)
 }
 
 test test_cargo_callers_select_their_exact_native_tests_and_products {
