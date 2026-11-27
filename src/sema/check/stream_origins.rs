@@ -126,7 +126,7 @@ pub(super) struct StreamLoopFrame {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct StreamOriginSummaries {
-    declarations: BTreeMap<EffectDeclarationId, StreamReturnSummary>,
+    declarations: BTreeMap<EffectDeclarationId, std::sync::Arc<StreamReturnSummary>>,
     loops: BTreeMap<StreamLoopId, BTreeMap<super::BindingId, StreamOrigins>>,
 }
 
@@ -218,7 +218,7 @@ impl StreamOriginInputs {
     }
 
     fn declaration(&self, owner: &EffectDeclarationId) -> Option<&StreamReturnSummary> {
-        self.provisional.declarations.get(owner).or_else(|| self.dependencies.declarations.get(owner))
+        self.provisional.declarations.get(owner).or_else(|| self.dependencies.declarations.get(owner)).map(|summary| &**summary)
     }
 
     fn loop_header(&self, identity: &StreamLoopId) -> Option<&BTreeMap<super::BindingId, StreamOrigins>> {
@@ -769,8 +769,8 @@ impl StreamOriginTransferClosure {
             resolved.settle_pending(&self.settled);
             if resolved.has_application_dependency() { return None; }
             let target = match slot {
-                TransferSlot::Returned(owner) => &mut current.declarations.get_mut(owner).expect("published stream origins keep every recorded declaration").returned,
-                TransferSlot::Default(owner, position) => current.declarations.get_mut(owner).and_then(|summary| summary.defaults.get_mut(position)).expect("published stream origins keep every recorded default"),
+                TransferSlot::Returned(owner) => &mut std::sync::Arc::make_mut(current.declarations.get_mut(owner).expect("published stream origins keep every recorded declaration")).returned,
+                TransferSlot::Default(owner, position) => current.declarations.get_mut(owner).and_then(|summary| std::sync::Arc::make_mut(summary).defaults.get_mut(position)).expect("published stream origins keep every recorded default"),
                 TransferSlot::Header(identity, binding) => current.loops.get_mut(*identity).and_then(|header| header.get_mut(binding)).expect("published loop headers keep every recorded binding"),
             };
             if target.join(&resolved) {
@@ -923,6 +923,7 @@ impl StreamOriginTransferClosure {
 impl StreamOriginSummaries {
     fn without_transfers(&mut self) {
         for summary in self.declarations.values_mut() {
+            let summary = std::sync::Arc::make_mut(summary);
             summary.returned.without_transfers();
             for origin in summary.defaults.values_mut() { origin.without_transfers(); }
         }
@@ -942,6 +943,7 @@ impl Checker {
         let mut resolved = self.stream_origin_outputs.clone();
         for (&owner, summary) in &mut resolved.declarations {
             if !members.contains_key(&owner) { continue; }
+            let summary = std::sync::Arc::make_mut(summary);
             summary.returned = summary.returned.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
             for origin in summary.defaults.values_mut() {
                 *origin = origin.resolve_applications(owner, &self.type_constraints, calls, &self.provisional_function_calls).map_err(|error| (owner, error))?;
@@ -960,6 +962,7 @@ impl Checker {
     pub(super) fn normalize_stream_origin_applications(&mut self) -> Result<(), (EffectDeclarationId, StreamOriginBoundaryError)> {
         let mut normalized = self.stream_origin_outputs.clone();
         for (&owner, summary) in &mut normalized.declarations {
+            let summary = std::sync::Arc::make_mut(summary);
             let pending = self.declaration_inference.pending(super::FunctionDeclarationId::new(owner));
             summary.returned = summary.returned.normalize_applications(owner, &self.type_constraints, pending).map_err(|error| (owner, error))?;
             for origin in summary.defaults.values_mut() {
@@ -1072,7 +1075,7 @@ impl Checker {
     pub(super) fn record_stream_parameter_default(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, parameter: usize, expression: ExprId) {
         let owner = self.effect_declaration_id(arena, definition.body);
         let origin = self.stream_expr_origin(arena, expression);
-        self.stream_origin_outputs.declarations.entry(owner).or_default().defaults.insert(parameter, origin);
+        std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).defaults.insert(parameter, origin);
     }
 
     pub(super) fn record_stream_producer_effects(&mut self, owner: EffectDeclarationId) {
@@ -1083,12 +1086,13 @@ impl Checker {
                 _ => StreamOrigins::error(),
             },
         };
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).returned.join(&origin);
     }
 
     pub(super) fn settle_stream_origin_dependencies(&mut self, external: &StreamOriginSummaries) {
         let declarations = external.declarations.keys().chain(self.stream_origin_outputs.declarations.keys()).copied().collect::<BTreeSet<_>>();
         for summary in self.stream_origin_outputs.declarations.values_mut() {
+            let summary = std::sync::Arc::make_mut(summary);
             summary.returned.settle_pending(&declarations);
             for origin in summary.defaults.values_mut() { origin.settle_pending(&declarations); }
         }
@@ -1225,7 +1229,7 @@ impl Checker {
             .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
             .flatten()
             .and_then(super::PendingFunctionSig::generalized)
-            .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+            .and_then(|_| self.stream_origin_outputs.declarations.get(&target)).map(|summary| &**summary);
         if current.is_none() && target.namespace == self.current_namespace {
             self.provisional_stream_origins_read.set(true);
             self.provisional_stream_declarations_read.set(true);
@@ -1565,7 +1569,7 @@ impl Checker {
                                 .then(|| self.declaration_inference.pending(super::FunctionDeclarationId::new(target)))
                                 .flatten()
                                 .and_then(super::PendingFunctionSig::generalized)
-                                .and_then(|_| self.stream_origin_outputs.declarations.get(&target));
+                                .and_then(|_| self.stream_origin_outputs.declarations.get(&target)).map(|summary| &**summary);
                             if current_summary.is_none() && same_namespace {
                                 self.provisional_stream_origins_read.set(true);
                                 self.provisional_stream_declarations_read.set(true);
@@ -1785,7 +1789,7 @@ impl Checker {
     pub(super) fn record_stream_yield_origin(&mut self, origin: StreamOrigins, span: Span) {
         let Some(owner) = self.stream_origin_owner else { return };
         match origin.prefix(StreamProjection::Element) {
-            Ok(origin) => { self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin); }
+            Ok(origin) => { std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).returned.join(&origin); }
             Err(_) => self.report_stream_origin_boundary(span),
         }
     }
@@ -1793,7 +1797,7 @@ impl Checker {
     pub(super) fn record_stream_delegated_origin(&mut self, arena: &ArenaProgram, expression: ExprId) {
         let Some(owner) = self.stream_origin_owner else { return };
         let origin = self.stream_expr_origin(arena, expression);
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).returned.join(&origin);
     }
 
     pub(super) fn record_stream_return(&mut self, arena: &ArenaProgram, value: Option<ArenaExprOrRun>, actual: &Type, expected: &Type, span: Span) {
@@ -1809,7 +1813,7 @@ impl Checker {
         if expected.is_result() && !actual.is_result() {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(span); return; } }
         }
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).returned.join(&origin);
     }
 
     pub(super) fn finish_stream_return_summary(&mut self, arena: &ArenaProgram, definition: &crate::syntax::arena::ArenaFunctionDef, expected: &Type) {
@@ -1820,7 +1824,7 @@ impl Checker {
         if expected.is_result() && tail.is_some_and(|span| !self.stream_stmt_results.contains(&span)) {
             match origin.prefix(StreamProjection::Success) { Ok(value) => origin = value, Err(_) => { self.report_stream_origin_boundary(owner.body); return; } }
         }
-        self.stream_origin_outputs.declarations.entry(owner).or_default().returned.join(&origin);
+        std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default()).returned.join(&origin);
         self.finish_recorded_stream_return_summary(arena, definition, expected);
     }
 
@@ -1838,7 +1842,7 @@ impl Checker {
             ProjectionDomain::from_type(&ty)
         }).collect::<Result<Vec<_>, _>>();
         let (Ok(output), Ok(parameters)) = (shape, parameters) else { self.report_stream_origin_boundary(owner.body); return };
-        let summary = self.stream_origin_outputs.declarations.entry(owner).or_default();
+        let summary = std::sync::Arc::make_mut(self.stream_origin_outputs.declarations.entry(owner).or_default());
         summary.output = output;
         summary.parameters = parameters;
         match summary.returned.validate(owner, &summary.output, &summary.parameters, &self.stream_origin_inputs.transfers) {
@@ -2001,9 +2005,9 @@ mod tests {
             for owner in owners {
                 let returned = StreamOrigins::formal(owner, 0);
                 assert_eq!(returned.validate(owner, &domain, std::slice::from_ref(&domain), &super::StreamOriginTransfers::default()).unwrap(), returned);
-                summaries.declarations.insert(owner, super::StreamReturnSummary {
+                summaries.declarations.insert(owner, std::sync::Arc::new(super::StreamReturnSummary {
                     returned, defaults: BTreeMap::new(), output: domain.clone(), parameters: vec![domain.clone()],
-                });
+                }));
             }
             for owner in [Some(owners[0]), Some(owners[1]), None] {
                 summaries.loops.insert(super::StreamLoopId {
