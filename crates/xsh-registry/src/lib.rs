@@ -52,6 +52,7 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "SshSession",
     "RelPath",
     "Result",
+    "SqliteDb",
 ];
 
 pub const FIXED_SEMANTIC_SYMBOLS: &[&str] =
