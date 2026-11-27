@@ -1647,7 +1647,7 @@ export pure lowered(report: Report, baseline: Baseline) -> Result[Baseline, Metr
     let recorded = baseline.metrics |> where .name == row.name |> collect
     if row.value > recorded[0].value { fail .Rise(name: row.name, before: recorded[0].value, after: row.value) }
   }
-  Baseline(schema: 1, metrics: current)
+  Baseline(1, current)
 }
 
 ## Requires every structural metric to equal its recorded value.

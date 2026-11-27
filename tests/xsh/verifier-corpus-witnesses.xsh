@@ -230,7 +230,7 @@ test test_earlier_exits_exclude_union_members {
 }
 
 test test_wildcard_if_let_narrows_the_tested_path {
-  let counts = Counts(retries: 3)
+  let counts = Counts(3)
   if let _ = counts.retries {
     assert counts.retries + 1 == 4
   }

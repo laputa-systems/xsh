@@ -232,7 +232,7 @@ type DisplayEntry = {level: DisplayLevel, plain: DisplayPlain}
 test test_display_strings_interpolate_a_str_backed_enum_as_its_wire_string {
   let level: DisplayLevel = .Low
   let silent: DisplayLevel = .High
-  let entry = DisplayEntry(level: .Low, plain: .Quiet)
+  let entry = DisplayEntry(.Low, .Quiet)
   assert f"{level}" == "low"
   assert f"<{silent}>" == "<>"
   assert f"{level}/{entry.level}" == "low/low"

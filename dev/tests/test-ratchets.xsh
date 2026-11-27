@@ -402,7 +402,7 @@ pure ratchet_report(manual_payloads: Int, src_lines: Int) -> metrics.Report {
 }
 
 pure ratchet_baseline(manual_payloads: Int) -> metrics.Baseline {
-  metrics.Baseline(schema: 1, metrics: [
+  metrics.Baseline(1, [
     {name: "blanket_dead_code_lines", value: 0},
     {name: "manual_payload_calls", value: manual_payloads},
   ])
@@ -493,7 +493,7 @@ test test_changed_inventories_and_malformed_reports_fail {
 test test_check_and_update_commands_measure_the_source_tree { |ctx|
   let root = ratchet_tree(ctx, 1)?
   let recorded = metrics.structural_values(measured(root)?)?
-  fp"{root}/dev/ratchets.json".write(json.encode(metrics.Baseline(schema: 1, metrics: recorded), pretty: true)? + "\n")
+  fp"{root}/dev/ratchets.json".write(json.encode(metrics.Baseline(1, recorded), pretty: true)? + "\n")
   let driver = p"dev/ratchets.xsh".read_text()?
   let report_path = fp"{root}/.work/gate/ratchets.json"
   let passed = test.expect(ctx, driver, status: 0, args: ["check", "--root", root, "--report", report_path])?
