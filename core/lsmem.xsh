@@ -81,8 +81,9 @@ pure value_equals_at(argument: Bytes) -> Int? {
   for index in range(argument.len()) {
     if argument.byte_at(index) == 61 { equals = index; break }
   }
-  return null when equals == null
-  let at = equals
+  guard let at = equals else {
+    return null
+  }
   return null when at == 2
   let name = argument.slice(2, length: at - 2).utf8() ?? ""
   let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
