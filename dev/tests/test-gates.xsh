@@ -133,7 +133,7 @@ test test_gate_rejects_source_changed_after_host_selection { |ctx|
   let marker = fp"{root}/started"
   fp"{root}/tools/cargo".write(f"#!/bin/sh\ntouch '{marker}'\nexit 0\n", mode: 0o755)
   let inherited = env.get_or("PATH", "")?
-  let _ = test.expect(ctx, f"""
+  test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -183,7 +183,7 @@ test test_scenario_only_scope_does_not_report_a_focused_pass { |ctx|
   let repository = fs.cwd()?
   let root = test.temp_dir(ctx, name: "gate-scenario-only")?
   init_gate_repository(root, repository)
-  let _ = test.expect(ctx, f"""
+  test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -223,7 +223,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """
   for status in [{raw: 1, expected: 1}, {raw: 2, expected: 2}, {raw: 130, expected: 130}, {raw: 143, expected: 130}] {
-    let _ = test.expect(ctx, source, status: status.expected, stdout: [f"raw_status={status.raw}"], args: [], env: {
+    test.expect(ctx, source, status: status.expected, stdout: [f"raw_status={status.raw}"], args: [], env: {
       PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       PIPELINE_STATUS: f"{status.raw}", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     })?
@@ -262,7 +262,7 @@ proc main() [fs, process, env, time, error, io] {{
   let _ = run.capture --text git -C $root update-ref -d HEAD
   fp"{root}/.git/index".unlink()
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
-  let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
+  test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert (true) }\n")
@@ -280,19 +280,19 @@ proc main() [fs, process, env, time, error, io] {{
   gates.lane(fixtures.linux_context(p"{root}")?, ["--case", {newline_id}])?
 }}
 """
-  let _ = test.expect(ctx, newline_source, status: 0, stdout: ["1 passed"], args: [],
+  test.expect(ctx, newline_source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { test.skip(\"missing fixture\") }\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "missing fixture"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete", "missing fixture"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
-  let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
+  test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("test required { assert false }\n")
-  let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(r"""test required { |ctx|
@@ -300,41 +300,41 @@ proc main() [fs, process, env, time, error, io] {{
   assert false
 }
 """)
-  let _ = test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1", "cleanup_failure"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["failed", "Results: failed=1", "cleanup_failure"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write("pure nothing() { return }\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let marker = fp"{root}/started"
   let runner = fp"{root}/target/x86_64-unknown-linux-musl/verification/xsht"
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 7; fi\nprintf run > '{marker}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 1, stdout: ["raw_status=7"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["raw_status=7"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then exit 130; fi\nprintf run > '{marker}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 130, stdout: ["raw_status=130"], args: [],
+  test.expect(ctx, source, status: 130, stdout: ["raw_status=130"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then printf '\\377\\n'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "UTF-8"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete", "UTF-8"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/unrelated.xsh::other\"]'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; fi\nexit 0\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   runner.write("#!/bin/sh\nif [ \"$2\" = --list-json ]; then echo '[\"tests/xsh/required.xsh::required\"]'; exit 0; fi\nexit 1\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let many_ids = [f"tests/xsh/required.xsh::case_{index}_abcdefghijklmnopqrstuvwxyz0123456789" for index in range(2000)]
@@ -343,7 +343,7 @@ proc main() [fs, process, env, time, error, io] {{
   let listing = fp"{root}/tools/large-ids.json"
   listing.write(encoded_ids)
   runner.write(f"#!/bin/sh\nif [ \"$2\" = --list-json ]; then cat '{listing}'; exit 0; fi\nprintf run > '{marker}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert marker.exists()?
@@ -382,28 +382,28 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 """
   let inherited = env.get_or("PATH", "")?
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "xsh"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert product.read_text()? == "changed"
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
-  let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
+  test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ run sh -c \"printf changed > '{product}'\"; assert false }}\n")
-  let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run rm \"{product}\" }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   product.write("original\n", mode: 0o600)
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["unavailable", "xsh"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   }
@@ -446,38 +446,38 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 """
   let inherited = env.get_or("PATH", "")?
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete", "source"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["incomplete", "source"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert input.read_text()? == "changed\n"
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
-  let _ = test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
+  test.expect(ctx, source, status: 0, stdout: ["1 passed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ run git -C \"{root}\" update-index --assume-unchanged input.txt }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   let _ = run.capture --text git -C $root update-index --no-assume-unchanged input.txt
   let untracked = fp"{root}/untracked.txt"
   untracked.write("before\n", mode: 0o666)
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{untracked}\".write(\"after\\n\")? }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"staged\\n\")?; run git -C \"{root}\" add input.txt }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".write(\"changed\\n\")?; assert false }}\n")
-  let _ = test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
+  test.expect(ctx, source, status: 1, stdout: ["failed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   input.write("original\n")
   fp"{root}/tests/xsh/required.xsh".write("test required { assert true }\n")
   fp"{root}/tools/cargo".write(f"#!/bin/sh\nprintf changed > '{input}'\n", mode: 0o755)
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
@@ -485,18 +485,18 @@ proc main() [fs, process, env, time, error, io] {{
   link.symlink(to: p"input.txt")
   fp"{root}/tests/xsh/required.xsh".write(
     f"test required {{ p\"{link}\".unlink()?; p\"{link}\".symlink(to: p\"missing\")? }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{input}\".unlink()? }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source changed"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   link.unlink()
   link.symlink(to: p"/")
   let marker = fp"{root}/leaf-started"
   fp"{root}/tests/xsh/required.xsh".write(f"test required {{ p\"{marker}\".write(\"started\")? }}\n")
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "escapes"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source unavailable", "escapes"], args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
@@ -505,7 +505,7 @@ proc main() [fs, process, env, time, error, io] {{
   if opaque.status.shell_code()? == 0 {
     let _ = run.capture --text git -C $root add -A
     let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m opaque
-    let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
+    test.expect(ctx, source, status: 2, stdout: ["source unavailable", "utf-8"], args: [],
       env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
         HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
     assert ! marker.exists()?
@@ -513,7 +513,7 @@ proc main() [fs, process, env, time, error, io] {{
     assert system.uname()?.sysname == "Darwin" and "Illegal byte sequence" in opaque.stderr, opaque.stderr
     print "non-UTF-8 filename check unavailable: APFS rejects non-UTF-8 names"
   }
-  let _ = test.expect(ctx, source, status: 2, stdout: ["source unavailable"], args: [],
+  test.expect(ctx, source, status: 2, stdout: ["source unavailable"], args: [],
     env: {PATH: fp"{root}/tools", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       HOST_UID: env.get("HOST_UID")?, HOST_GID: env.get("HOST_GID")?, XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
   assert ! marker.exists()?
@@ -1330,7 +1330,7 @@ exit 99
     ["--case", "showcase/tokei/UUTILS-RUST-CORRECTNESS"],
   ] {
     let encoded = json.encode(arguments)?
-    let _ = test.expect(ctx, f"""
+    test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -1364,7 +1364,7 @@ exit 99
   let inherited = env.get_or("PATH", "")?
   for inputs in [["", "/corpus"], ["/reference", ""]] {
     let encoded = json.encode(inputs)?
-    let _ = test.expect(ctx, f"""
+    test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -1609,7 +1609,7 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """
-  let _ = test.expect(ctx, store, status: 0, args: [], env: environment)?
+  test.expect(ctx, store, status: 0, args: [], env: environment)?
   fp"{container}/{relative}".unlink()
   let observe = f"""
 use gates
@@ -1620,9 +1620,9 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """
-  let _ = test.expect(ctx, observe, status: 0, stdout: ["current (passed"], args: [], env: environment)?
+  test.expect(ctx, observe, status: 0, stdout: ["current (passed"], args: [], env: environment)?
   fp"{host}/{relative}".write("changed\n", mode: 0o755)
-  let _ = test.expect(ctx, observe, status: 0, stdout: ["stale (product changed"], args: [], env: environment)?
+  test.expect(ctx, observe, status: 0, stdout: ["stale (product changed"], args: [], env: environment)?
 }
 
 test test_laputa_evidence_is_current_only_for_the_laputa_checkout_it_ran_against { |ctx|
@@ -1818,7 +1818,7 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """
-  let _ = test.expect(ctx, request_source, status: 0, args: [], env: {{PATH: f"{root}/tools:{inherited}",
+  test.expect(ctx, request_source, status: 0, args: [], env: {{PATH: f"{root}/tools:{inherited}",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"}})?
   let compile_calls = cargo_calls.read_lines()? |> where .starts_with("test ")
   assert compile_calls.len() == 1
@@ -1828,7 +1828,7 @@ main()?
   harness.write(f"""#!{ctx.xsh_bin}
 p"{harness}".write("changed")?
 """, mode: 0o755)
-  let _ = test.expect(ctx, request_source, status: 2, stdout: ["product changed", "prepared-test"], args: [], env: {{
+  test.expect(ctx, request_source, status: 2, stdout: ["product changed", "prepared-test"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
     XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
@@ -1873,12 +1873,12 @@ if args[0] == "test" {{
   }} else {{ test.fail("cancelled diagnostic reader did not finish") }}
   fp"{root}/dev/performance/results.py".write(fp"{repository}/dev/performance/results.py".read_bytes()?)
   fp"{root}/dev/gate_case.xsh".write("exit 130\n")
-  let _ = test.expect(ctx, request_source, status: 130, stdout: ["raw_status=130"], args: [], env: {{
+  test.expect(ctx, request_source, status: 130, stdout: ["raw_status=130"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
     XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 7\n", mode: 0o755)
-  let _ = test.expect(ctx, request_source, status: 1, stdout: ["execution_error=exit 7"], args: [], env: {{
+  test.expect(ctx, request_source, status: 1, stdout: ["execution_error=exit 7"], args: [], env: {{
     PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
     XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
   }})?
@@ -1938,12 +1938,12 @@ main()?
 """
   for case in [{mode: "pass", status: 0}, {mode: "skip", status: 2}, {mode: "missing", status: 2}, {mode: "fail", status: 1}, {mode: "outside", status: 2}] {
     mode_file.write(case.mode)
-    let _ = test.expect(ctx, request, status: case.status, args: [], env: {{
+    test.expect(ctx, request, status: case.status, args: [], env: {{
       PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification",
     }})?
   }
   mode_file.write("excluded")
-  let _ = test.expect(ctx, f"""
+  test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -2081,7 +2081,7 @@ proc main() [fs, process, env, time, error, io] {{
 main()?
 """
   let inherited = env.get_or("PATH", "")?
-  let _ = test.expect(ctx, source, status: 0, args: [],
+  test.expect(ctx, source, status: 0, args: [],
     env: {PATH: f"{root}/tools:{inherited}", XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "", DIST_PROFILE: "verification"})?
 }
@@ -2134,7 +2134,7 @@ exit requested
   let inherited = env.get_or("PATH", "")?
   for status in [1, 2, 130] {
     requested_status.write(f"{status}")
-    let _ = test.expect(ctx, f"""
+    test.expect(ctx, f"""
 use gates
 use fixtures
 proc main() [fs, process, env, time, error, io] {{
@@ -2311,11 +2311,11 @@ proc main(...arguments: List[Str]) [fs, process, env, time, error, io] {{
 }}
 """
   for variant in ["missing", "cycle", "duplicate", "missing-root", "wrong-root", "empty-root", "unprovided", "product-order", "manual-runtime-limit", "automatic-manual-owner", "zero-runtime", "focused"] {
-    let _ = test.expect(ctx, source, status: 2, args: [variant],
+    test.expect(ctx, source, status: 2, args: [variant],
       env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
     assert ! marker.exists()?
   }
-  let _ = test.expect(ctx, source, status: 0, args: ["valid"],
+  test.expect(ctx, source, status: 0, args: ["valid"],
     env: {XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev"})?
   assert marker.read_lines()? == ["prepare", "check"]
 }
@@ -2927,7 +2927,7 @@ main()?
     if tag_seen.exists() { tag_seen.remove() }
     adapter_status.write(f"{external}")
     let expected = if status == 130 { 130 } else if status == 1 or external == 1 { 1 } else if status == 2 { 2 } else { 0 }
-    let _ = test.expect(ctx, source, status: expected, args: [], env: {{
+    test.expect(ctx, source, status: expected, args: [], env: {{
       PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: "0", XSH_TEST_IMAGE: "fixture", DIST_PROFILE: "verification",
@@ -2941,7 +2941,7 @@ main()?
   }
   invocation.remove()
   preparation_invocation.remove()
-  let _ = test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [], env: {{
+  test.expect(ctx, source, status: 2, stdout: ["incomplete"], args: [], env: {{
     PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev", XSH_TEST_IMAGE_BUILD: "0",
     XSH_TEST_IMAGE: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -2951,7 +2951,7 @@ main()?
   if tag_seen.exists() { tag_seen.remove() }
   desired.write("0")
   adapter_status.write("0")
-  let _ = test.expect(ctx, source, status: 0, args: [], env: {{
+  test.expect(ctx, source, status: 0, args: [], env: {{
     PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
     XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
     XSH_TEST_IMAGE_BUILD: "1", XSH_TEST_IMAGE: "fixture",
@@ -2961,7 +2961,7 @@ main()?
   invocation.remove()
   preparation_invocation.remove()
   for setup in [["0", "1", "2"], ["1", "1", "2"], ["0", "130", "130"], ["1", "130", "130"]] {
-    let _ = test.expect(ctx, source, status: setup[2] as Int, args: [], env: {{
+    test.expect(ctx, source, status: setup[2] as Int, args: [], env: {{
       PATH: f"{tools}:{inherited}", CARGO_HOME: cargo_home, DIST_PROFILE: "verification",
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: setup[0], IMAGE_SETUP_STATUS: setup[1], XSH_TEST_IMAGE: "fixture",
@@ -3374,24 +3374,24 @@ main()?
 """
   let id = "test-route-witness-unit"
   let record = fp"{root}/.work/gate/cases/{id}.json"
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run", "Full: not run"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run", "Full: not run"], args: [], env: environment)?
   assert ! record.exists()?
   assert ! cargo_calls.exists()?
-  let _ = test.expect(ctx, run_source, status: 0, args: [], env: environment)?
+  test.expect(ctx, run_source, status: 0, args: [], env: environment)?
   assert record.exists()?
   let compile_calls = cargo_calls.read_lines()?.len()
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current", "Full: not run"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current", "Full: not run"], args: [], env: environment)?
   harness.write("#!/bin/sh\nexit 0\n", mode: 0o755)
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (product changed: {harness}", "Full: not run"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (product changed: {harness}", "Full: not run"], args: [], env: environment)?
   harness.write(harness_source, mode: 0o755)
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
   fp"{root}/Cargo.toml".write("edited\n")
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)", "Full: not run"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)", "Full: not run"], args: [], env: environment)?
   fp"{root}/Cargo.toml".write("")
   record.write("{not json")
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (unreadable record"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (unreadable record"], args: [], env: environment)?
   record.remove()
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
   assert cargo_calls.read_lines()?.len() == compile_calls
   assert harness_calls.read_lines()?.len() == 1
   assert ! docker_marker.exists()?
@@ -3457,11 +3457,11 @@ proc main() [fs, process, env, time, error, io] {{
 }}
 main()?
 """
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
-  let _ = test.expect(ctx, run_source, status: 0, args: [], env: environment)?
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: not run"], args: [], env: environment)?
+  test.expect(ctx, run_source, status: 0, args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: current"], args: [], env: environment)?
   fp"{root}/Cargo.toml".write("edited\n")
-  let _ = test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)"], args: [], env: environment)?
+  test.expect(ctx, status_source, status: 0, stdout: [f"{id}: stale (source changed)"], args: [], env: environment)?
 }
 
 test test_container_ownership_repair_returns_container_written_outputs_to_the_host_user_and_is_verified { |ctx|
