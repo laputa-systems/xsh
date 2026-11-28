@@ -2187,7 +2187,10 @@ fn arch_program_image_reconstructs_its_prepared_cli_descriptor() {
     let run = reconstruct_and_compare(ARCH_SCRIPT, Vec::new());
     assert!(run.module_call_plans > 0);
     assert_eq!(run.status, 0);
-    assert_eq!(String::from_utf8(run.stdout).unwrap().trim(), std::env::consts::ARCH);
+    // `arch` prints the kernel's machine name, which is `arm64` on macOS
+    // where Rust's target architecture is `aarch64`.
+    let machine = rustix::system::uname().machine().to_string_lossy().into_owned();
+    assert_eq!(String::from_utf8(run.stdout).unwrap().trim(), machine);
     let help = reconstruct_and_compare(ARCH_SCRIPT, vec!["--help".into()]);
     assert_eq!(help.image, run.image);
     assert!(help.stdout.starts_with(b"Usage: arch"));
