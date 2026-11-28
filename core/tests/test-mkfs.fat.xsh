@@ -69,6 +69,9 @@ test test_fat_format_preserves_bytes_outside_volume { |ctx|
 }
 
 test test_fat16_and_fat32_sparse_images { |ctx|
+  # Formatting and checking both images took 115-118 s in full native runs
+  # on a 10-core Mac, against the default 120 s.
+  test.timeout(ctx, 600s)
   let root = test.temp_dir(ctx, name: "fat-types")?
   let fat16 = fp"{root}/fat16.img"
   let layout16 = vfat.format(fat16, 16777216, bits: 16, label: "FAT16")?
