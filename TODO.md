@@ -1,5 +1,5 @@
 Prefix: XSH
-Next: 198
+Next: 199
 
 Apply the [design principles](docs/DESIGN.md) to each slice: prefer reusable
 host boundaries and ordinary XSH policy over command-specific runtime growth.
@@ -10,6 +10,15 @@ owns VM milestones. Implement each item in its owning repository.
 
 Runtime proof limits appear in each ticket. Findings marked unproven need a
 reproducer. The [roadmap](docs/roadmap.md) owns campaign status and sequence.
+
+### XSH-198 · P2 · macOS children inherit descriptors other threads are creating
+
+- **Area:** Runtime processes, macOS
+- **Where:** `Command::spawn` in `src/runtime/spawn.rs` (the macOS `pre_exec` + `execve` path); descriptor creation through the standard library and `src/modules/net`
+- **Problem:** macOS has no atomic close-on-exec for `pipe` or `socket`, so a descriptor created on one thread is inheritable until its `FD_CLOEXEC` is set. A child forked on another thread in that window inherits it. Reproduced at `1f738519f` on macOS 27.2 arm64: running `core/tests/test-uu-sort-2.xsh::test_uu_sort_merge_batch_size_with_limit` (a `sort` under `ulimit -n 7`) beside the network tests with `xsht test --exact-ids-file` failed in one of three runs with `sort: cannot read: ...: Too many open files`, and in the full native suite in three of four runs; alone it passed 10 of 10, and beside 528 process tests without sockets 3 of 3. A diagnostic `ls -l /dev/fd` in that child showed an inherited socket at descriptor 12. Linux creates these descriptors with `O_CLOEXEC` and is unaffected.
+- **Recommendation:** Spawn on macOS with `posix_spawn` and `POSIX_SPAWN_CLOEXEC_DEFAULT`, mapping the intended stdio and any explicitly passed descriptors through file actions, so nothing else crosses `exec`; keep the `pre_exec` path only where hooks require it and close inherited descriptors there. Regression: the sort limit test beside the network tests, repeated, and a child that lists `/dev/fd` while another thread opens sockets.
+- **Fix with:** root-cause
+- **Effort:** M
 
 ### XSH-193 · P2 · Errors raised inside a `module.load` program render against the loading program's sources
 
