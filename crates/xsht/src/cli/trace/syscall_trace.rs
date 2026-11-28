@@ -640,6 +640,9 @@ mod platform {
 }
 
 #[cfg(not(target_os = "linux"))]
+use crate::xsht::cli::{CliOutput, TraceOptions};
+
+#[cfg(not(target_os = "linux"))]
 #[allow(clippy::single_call_fn)]
 pub(crate) fn run(_options: TraceOptions) -> CliOutput {
     CliOutput {
