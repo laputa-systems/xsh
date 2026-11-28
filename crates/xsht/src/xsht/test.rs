@@ -2731,11 +2731,14 @@ mod tests {
         )
         .unwrap();
         symlink(&outside, sandbox.path().join("root/outside-link")).unwrap();
-        std::fs::write(
-            sandbox.path().join("root").join(std::ffi::OsString::from_vec(b"leaf-\xff".to_vec())),
-            "kept",
-        )
-        .unwrap();
+        // APFS refuses names that are not UTF-8, so macOS removes a
+        // non-ASCII name instead of a raw byte name.
+        let leaf = if cfg!(target_os = "macos") {
+            std::ffi::OsString::from("leaf-\u{e9}")
+        } else {
+            std::ffi::OsString::from_vec(b"leaf-\xff".to_vec())
+        };
+        std::fs::write(sandbox.path().join("root").join(leaf), "kept").unwrap();
         let flags = rustix::fs::OFlags::RDONLY
             | rustix::fs::OFlags::DIRECTORY
             | rustix::fs::OFlags::NOFOLLOW
