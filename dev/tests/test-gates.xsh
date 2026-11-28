@@ -2511,7 +2511,10 @@ test test_laputa_and_json_n_must_be_selected_separately {
   }
 }
 
-test test_core_workload_scenarios_require_explicit_selection {
+test test_core_workload_scenarios_require_explicit_selection { |ctx|
+  # Twenty-odd catalog plans take about 5 s alone; the default 120 s ran out
+  # when the whole native suite shared a 10-core Mac.
+  test.timeout(ctx, 600s)
   let context = fixtures.linux_context(p"/repo")?
   for id in ["performance/core-json-small/correctness", "performance/core-json-medium/correctness", "performance/core-json-large/correctness"] {
     let selected = gates.plan_paths(context, tests.Verification, [], [id], gates.Change)?
