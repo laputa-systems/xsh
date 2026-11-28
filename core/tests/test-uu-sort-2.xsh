@@ -22,9 +22,11 @@ proc fixture_case(ctx: TestContext, base: Str, options: List[Str]) [fs, process,
 }
 
 # Set both child limits before executing the applet; the runner keeps its own limits.
+# The limit counts descriptor numbers, so the shell first closes 3 to 6: on
+# macOS a child can inherit a descriptor another thread is creating (XSH-198).
 proc limited(s: uu.Scene, args: List[Str], count: Int) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let argv = uu.argv(s, "sort", [fp"{word}" for word in args])?
-  let words = [p"/bin/sh", p"-c", r"""ulimit -Sn "$1"; ulimit -Hn "$1"; shift; exec "$@" """ as Path, p"sort-limit", fp"{count}"].extend(argv)
+  let words = [p"/bin/sh", p"-c", r"""exec 3<&- 4<&- 5<&- 6<&-; ulimit -Sn "$1"; ulimit -Hn "$1"; shift; exec "$@" """ as Path, p"sort-limit", fp"{count}"].extend(argv)
   let out = uu.at(s, ".limited-out")
   let err = uu.at(s, ".limited-err")
   let plan = process.command_argv(p"/bin/sh", words, s.root, {}, b"", out, err)
