@@ -134,6 +134,9 @@ pure counted(session: client.Session, key: Str) -> Int {
 }
 
 test test_renewal_is_unicast_at_t1_then_rebinding_is_broadcast_at_t2_then_the_lease_expires { |ctx|
+  # Simulating 40,000 seconds of lease takes about 2 s alone; in a full
+  # native run on a 10-core Mac it took 115-121 s against the default 120 s.
+  test.timeout(ctx, 600s)
   let h = harness(ctx, "lifecycle")?
   let rules = [
     script.always("discover", [offer_with(20)]),
