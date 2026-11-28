@@ -1,3 +1,4 @@
+use fixtures
 use cargo_steps
 use stage as stages
 
@@ -91,6 +92,7 @@ test test_a_test_step_builds_under_the_preload_and_runs_without_it {
 
 proc write_fake_toolchain(tools: Path, log: Path) [fs, error] {
   tools.mkdir()
+  fixtures.musl_host_compiler(tools)?
   fp"{tools}/rustc".write(
     r"""#!/bin/sh
 printf '%s\n' 'host: x86_64-unknown-linux-musl'

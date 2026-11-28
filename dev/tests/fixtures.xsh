@@ -46,3 +46,10 @@ export pure linux_aarch64_context(root: Path, profile: Str = "dist") -> Result[c
     darwin_deployment_target: "26.0",
   })
 }
+
+## Writes a `cc` into `tools` that reports a musl target. A musl build step
+## then needs no host cross compiler, so a test that puts `tools` first on
+## PATH behaves the same on every host.
+export proc musl_host_compiler(tools: Path) [fs, error] -> Result[Unit, Error] {
+  fp"{tools}/cc".write("#!/bin/sh\nif [ \"$1\" = -dumpmachine ]; then echo x86_64-linux-musl; exit 0; fi\nexit 1\n", mode: 0o755)
+}

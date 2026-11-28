@@ -262,6 +262,11 @@ proc veth_queue_maximum() [fs, error] -> Result[Int] {
 }
 
 test test_channels_are_read_and_changed_on_a_veth_pair { |ctx|
+  # The veth queue maximum comes from the Linux CPU mask in /sys.
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("veth channel limits need the Linux /sys CPU mask")
+    return
+  }
   let maximum = veth_queue_maximum()?
   let ran = session(ctx, ["-l v0", "-L v0 rx 2", "-l v0", "-L v0", f"-L v0 rx {maximum + 1}", "-L v0 rx 0 tx 0", "-L v0 other 1", "-L v0 rx", "-L v0 bogus 1", "-L v0 rx x", "-l d0"])?
   guard ! ran.is_empty() else { return }

@@ -201,6 +201,7 @@ test test_pipeline_gate_preserves_incomplete_and_cancelled_status { |ctx|
   fp"{root}/dev".mkdir()
   fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   let python = (run.text which python3)?.trim()
   fp"{root}/tools/python3".write(f"""#!/bin/sh
@@ -241,6 +242,7 @@ test test_native_gate_reports_required_skips_as_incomplete { |ctx|
   fp"{root}/tests/xsh".mkdir()
   fp"{root}/tests/xsh/required.xsh".write("test required { test.skip(\"missing fixture\") }\n")
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
@@ -360,6 +362,7 @@ test test_native_gate_rejects_product_changes_during_execution { |ctx|
   fp"{root}/tests".mkdir()
   fp"{root}/tests/xsh".mkdir()
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
@@ -430,6 +433,7 @@ test test_native_gate_rejects_source_changes_during_execution { |ctx|
   let _ = run.capture --text git -C $root -c "user.name=Fixture" -c "user.email=fixture@example.invalid" commit --quiet -m fixture
   hand_to_native_user(root)
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
@@ -1776,6 +1780,7 @@ test test_gate_prepares_each_cargo_harness_once_and_runs_filters_without_cargo {
     fp"{root}/target/x86_64-unknown-linux-musl/verification/{product}".write("fixture\n", mode: 0o755)
   }
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/dev/gate_case.xsh".write(fp"{repository}/dev/gate_case.xsh".read_bytes()?)
   fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
   let cargo_calls = fp"{root}/cargo-calls"
@@ -1898,6 +1903,7 @@ test test_cargo_harness_reports_required_results { |ctx|
   products.mkdir()
   for product in ["xsh", "xsht", "xshi"] { fp"{products}/{product}".write("fixture\n", mode: 0o755) }
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   let mode_file = fp"{root}/tools/mode"
   let harness = fp"{root}/target/prepared-test"
   harness.write(f"""#!{ctx.xsh_bin}
@@ -1967,6 +1973,7 @@ test test_gate_cancel_consumes_owned_descendants_before_exit_130 { |ctx|
   for name in ["Cargo.toml", "rust-toolchain.toml", "xsht-config.ini"] { fp"{root}/{name}".write("") }
   let script = fp"{repository}/dev/main.xsh"
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
   let products = fp"{root}/target/x86_64-unknown-linux-musl/verification"
@@ -2014,6 +2021,7 @@ test test_gate_cancel_consumes_product_inspection_before_exit_130 { |ctx|
   fp"{root}/dev/gate_product.xsh".write(
     f"p\"{child_file}\".write(f\"{{process.current_pid()?}}\")?\np\"{ready}\".write(\"ready\")?\ntime.sleep(30s)?\n")
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
@@ -2057,6 +2065,7 @@ test test_product_inspection_respects_the_selected_case_deadline { |ctx|
   fp"{root}/dev".mkdir()
   fp"{root}/dev/gate_product.xsh".write("time.sleep(5s)?\n")
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/tools/cargo".write("#!/bin/sh\nexit 0\n", mode: 0o755)
   fp"{root}/target".mkdir()
   fp"{root}/target/x86_64-unknown-linux-musl".mkdir()
@@ -3319,6 +3328,7 @@ test test_gate_status_reports_current_stale_and_not_run_evidence_without_startin
     fp"{root}/target/x86_64-unknown-linux-musl/verification/{product}".write("fixture\n", mode: 0o755)
   }
   fp"{root}/tools".mkdir()
+  fixtures.musl_host_compiler(fp"{root}/tools")?
   fp"{root}/dev/gate_case.xsh".write(fp"{repository}/dev/gate_case.xsh".read_bytes()?)
   fp"{root}/dev/gate_product.xsh".write(fp"{repository}/dev/gate_product.xsh".read_bytes()?)
   let cargo_calls = fp"{root}/cargo-calls"

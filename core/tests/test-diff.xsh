@@ -39,7 +39,9 @@ proc fixtures(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   fp"{root}/fx/d1/with space".write("a b\n")
   fp"{root}/fx/d2/with space".write("a c\n")
   fp"{root}/fx/caf\u{e9}".write("x\n")
-  for entry in fs.walk(fp"{root}/fx", hidden: true)? {
+  # Every fixture file gets its time: an ignore file above the temporary
+  # directory, such as one listing `*.o`, must not hide one from the walk.
+  for entry in fs.walk(fp"{root}/fx", gitignore: false, hidden: true)? {
     if entry.kind == "file" {
       fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })
     }

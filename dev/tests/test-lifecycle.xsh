@@ -1,3 +1,4 @@
+use fixtures
 use targets as target_policy
 
 pure context_source(root: Path, host_os: target_policy.HostOs = target_policy.Linux) -> Str {
@@ -92,6 +93,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"{root}/tools"
   tools.mkdir()
+  fixtures.musl_host_compiler(tools)?
   write_fake_flock(tools)
   let cargo_marker = fp"{root}/cargo-marker"
   let repository = fs.cwd()?
