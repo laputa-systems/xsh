@@ -329,10 +329,11 @@ test test_signal_recorded_while_its_hook_is_armed_takes_the_unhooked_path { |ctx
   let marker = fp"{root}/marker"
   let hook_marker = fp"{root}/hook"
   let continued = fp"{root}/continued"
-  # Arming captures one slot per referenced top-level binding, so 8192 bindings
-  # widen the arming span to about 30 ms and the helper's 8 ms TERM lands in it.
-  let bindings = [f"let top_{index} = {index}" for index in range(8192)].join("\n")
-  let hook_slots = [f"  let used_{index} = top_{index}" for index in range(8192)].join("\n")
+  # Arming captures one slot per referenced top-level binding. 16384 bindings
+  # keep the arming span past the helper's 8 ms TERM on a fast host, where
+  # 8192 sometimes armed first and the hook ran.
+  let bindings = [f"let top_{index} = {index}" for index in range(16384)].join("\n")
+  let hook_slots = [f"  let used_{index} = top_{index}" for index in range(16384)].join("\n")
   let started = time.now()
   let output = test.expect(
     ctx,
